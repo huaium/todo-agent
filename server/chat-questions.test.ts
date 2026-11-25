@@ -33,8 +33,64 @@ async function restore(t: TestContext, setup: (store: TaskStore) => ChatQuestion
       body: JSON.stringify({ action: "answer", revision, questionId, answer }),
     });
   assert.deepEqual((await read()).messages.at(-1)?.question, q);
-  return { read, answer, q, store };
+  const command = (body: object) =>
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  return { read, answer, q, store, command };
 }
+test("cautious mode gates chat writes across reloads, checks revisions, and supports cancellation", async (t) => {
+  function setup(store: TaskStore) {
+    const task = store.create("采购");
+    return deadlineQuestion(store.snapshot(), task.id)!;
+  }
+  const { read, answer, q, store, command } = await restore(t, setup);
+  const chooseDate = (revision: number) =>
+    answer(revision, q.id, { kind: "deadline", date: "2031-01-01" });
+  const mode = await command({ action: "setApprovalMode", revision: 1, mode: "cautious" });
+  assert.equal((await mode.json()).approvalMode, "cautious");
+  const paused: Conversation = await (await chooseDate(2)).json();
+  assert.ok(paused.approval);
+  assert.match(paused.approval.title, /采购/);
+  assert.ok(paused.approval.details.some((line) => line.includes("2031-01-01")));
+  assert.equal(store.list()[0].dueDate, undefined);
+  assert.deepEqual((await read()).approval, paused.approval);
+  const review = {
+    action: "review",
+    revision: paused.revision,
+    token: paused.approval.token,
+    allow: true,
+  };
+  assert.equal((await command({ ...review, token: "other" })).status, 409);
+  const replies = await Promise.all([command(review), command(review)]);
+  assert.deepEqual(replies.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(store.list()[0].dueDate, "2031-01-01");
+  assert.equal((await read()).approval, undefined);
+  const second = await restore(t, setup);
+  await second.command({ action: "setApprovalMode", revision: 1, mode: "cautious" });
+  const next: Conversation = await (
+    await second.answer(2, second.q.id, { kind: "deadline", date: "2032-01-01" })
+  ).json();
+  const canceled: Conversation = await (
+    await second.command({
+      action: "review",
+      revision: next.revision,
+      token: next.approval!.token,
+      allow: false,
+    })
+  ).json();
+  assert.equal(canceled.pending, false);
+  assert.equal(second.store.list()[0].dueDate, undefined);
+  assert.equal(canceled.approvalMode, "cautious");
+  const reset = await second.command({
+    action: "setApprovalMode",
+    revision: canceled.revision,
+    mode: "allow",
+  });
+  assert.equal((await reset.json()).approvalMode, "allow");
+});
 test("重开对话后只能回答一次截止时间，保留独立提醒", async (t) => {
   const { read, answer, q, store } = await restore(t, (s) => {
     const task = s.create("采购", { reminder: "2030-01-02T13:00" });

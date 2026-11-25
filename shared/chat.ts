@@ -60,11 +60,21 @@ const previewSchema = z.object({
   titles: z.array(z.string()),
 });
 export type BulkPreview = z.infer<typeof previewSchema>;
+export const approvalMode = z.enum(["allow", "cautious"]);
+export type ApprovalMode = z.infer<typeof approvalMode>;
+const approvalSchema = z.object({
+  token: z.string(),
+  title: z.string(),
+  details: z.array(z.string()),
+});
+export type ChatApproval = z.infer<typeof approvalSchema>;
 export const conversationSchema = z.object({
   revision,
   messages: z.array(messageSchema),
   pending: z.boolean(),
   preview: previewSchema.optional(),
+  approvalMode: approvalMode.optional(),
+  approval: approvalSchema.optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
 const viewContext = z.object({
@@ -75,6 +85,8 @@ const viewContext = z.object({
 export type ViewContext = z.infer<typeof viewContext>;
 
 export const conversationCommand = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("setApprovalMode"), revision, mode: approvalMode }),
+  z.object({ action: z.literal("review"), revision, token: z.string(), allow: z.boolean() }),
   z.object({
     action: z.literal("send"),
     revision,

@@ -64,7 +64,7 @@ test("a failed import publishes neither store; correcting the source allows retr
   );
   const db = openDatabase(dir);
   assert.deepEqual(readPlannerDocument(db).tasks, [task]);
-  db.exec("PRAGMA user_version=3");
+  db.exec("PRAGMA user_version=4");
   db.close();
   assert.throws(() => openDatabase(dir), /schema version/);
 });
@@ -81,7 +81,9 @@ test("opens a version 1 planner and adds the bin without changing its tasks", (t
   const task = { id: "before-bin", title: "历史任务", done: false };
   writeFileSync(join(dir, "tasks.json"), JSON.stringify([task]));
   const db = openDatabase(dir);
-  db.exec("DROP TABLE task_bin; PRAGMA user_version=1");
+  db.exec(
+    "DROP TABLE task_bin; ALTER TABLE conversation DROP COLUMN approval_mode; ALTER TABLE conversation DROP COLUMN approval; PRAGMA user_version=1",
+  );
   db.close();
   const migrated = openDatabase(dir);
   assert.deepEqual(readPlannerDocument(migrated).tasks, [task]);

@@ -1,5 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { BulkPreview, ChatMessage, ChatQuestion } from "../shared/chat.ts";
+import type {
+  ApprovalMode,
+  ChatApproval,
+  BulkPreview,
+  ChatMessage,
+  ChatQuestion,
+} from "../shared/chat.ts";
 import {
   chatState,
   insertMessage,
@@ -17,7 +23,7 @@ export class ChatConflict extends Error {
 }
 export function openConversation(db: DatabaseSync) {
   const advance = db.prepare(
-    "UPDATE conversation SET revision=revision+1,pending=?,preview=? WHERE id=1 AND revision=? AND pending=?",
+    "UPDATE conversation SET revision=revision+1,pending=?,preview=?,approval=NULL WHERE id=1 AND revision=? AND pending=?",
   );
   function write(
     revision: number,
@@ -60,10 +66,35 @@ export function openConversation(db: DatabaseSync) {
       write(revision, false, true, { role: "user", content }),
     clear: (revision: number) => write(revision, false, false),
     appendReply,
+    setApprovalMode(revision: number, mode: ApprovalMode) {
+      if (
+        !db
+          .prepare(
+            "UPDATE conversation SET approval_mode=?,revision=revision+1 WHERE id=1 AND revision=? AND pending=0",
+          )
+          .run(mode, revision).changes
+      )
+        throw new ChatConflict();
+    },
+    setApproval(revision: number, approval?: ChatApproval) {
+      if (
+        !db
+          .prepare(
+            "UPDATE conversation SET approval=?,revision=revision+1 WHERE id=1 AND revision=? AND pending=1",
+          )
+          .run(JSON.stringify(approval) ?? null, revision).changes
+      )
+        throw new ChatConflict();
+    },
     recover() {
       const state = chatState(db);
       // A committed tool action must never be replayed on restart.
-      if (state.pending) appendReply(state.revision, true, interruptedReply);
+      if (state.pending)
+        appendReply(
+          state.revision,
+          true,
+          state.approval ? "服务已重启，待审批的更改已取消。" : interruptedReply,
+        );
       else if (state.preview)
         appendReply(state.revision, false, "服务已重启，上次改期预览已失效。请重新预览。");
     },

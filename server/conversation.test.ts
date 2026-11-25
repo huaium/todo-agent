@@ -35,6 +35,19 @@ test("重启后保留对话并结束中断的请求，只记录一次中断", as
   const afterRestart = recovered.read();
   assert.equal(afterRestart.preview, undefined);
   assert.match(afterRestart.messages.at(-1)!.content, /预览已失效/);
+  recovered.setApprovalMode(afterRestart.revision, "cautious");
+  recovered.begin(afterRestart.revision + 1, "添加任务");
+  recovered.setApproval(afterRestart.revision + 2, {
+    token: "review",
+    title: "添加任务",
+    details: [],
+  });
+  recovered.recover();
+  const resumed = recovered.read();
+  assert.equal(resumed.approvalMode, "cautious");
+  assert.equal(resumed.approval, undefined);
+  assert.equal(resumed.pending, false);
+  assert.match(resumed.messages.at(-1)!.content, /更改已取消/);
 });
 
 test("长对话保留完整记录，仅将最近的完整轮次传给模型", () => {

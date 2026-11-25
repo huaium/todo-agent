@@ -1,3 +1,13 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
+export interface TaskWrite {
+  method: string;
+  resource: string;
+  id?: string;
+  body?: unknown;
+}
+export const chatWriteReview = new AsyncLocalStorage<(write: TaskWrite) => Promise<void>>();
+
 export async function requestTask(
   port: number,
   method: string,
@@ -6,6 +16,7 @@ export async function requestTask(
   resource = "tasks",
   version?: string,
 ) {
+  if (method !== "GET") await chatWriteReview.getStore()?.({ method, resource, id, body });
   const collection = `http://127.0.0.1:${port}/api/${resource}`;
   const response = await fetch(
     id === undefined ? collection : `${collection}/${encodeURIComponent(id)}`,

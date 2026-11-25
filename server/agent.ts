@@ -59,6 +59,7 @@ export async function reply(
     timeZone: string | null;
     question?: ChatQuestion;
   },
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!process.env.DEEPSEEK_API_KEY)
     return "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。";
@@ -107,7 +108,14 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
       if (answer || turns >= 12) return { action: "end" };
     },
   });
-  await agent.prompt(history.map(historyMessage));
+  const abort = () => agent.abort();
+  signal?.throwIfAborted();
+  signal?.addEventListener("abort", abort, { once: true });
+  try {
+    await agent.prompt(history.map(historyMessage));
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
   if (answer) return answer;
   if (!changes.length && agent.state.errorMessage) throw new Error(agent.state.errorMessage);
   return changes.length

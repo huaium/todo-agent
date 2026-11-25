@@ -149,11 +149,15 @@ export function readPlannerDocument(db: DatabaseSync): PlannerDocument {
   return { version: 1, ...readPlanner(db), series };
 }
 export function chatState(db: DatabaseSync): Omit<Conversation, "messages"> {
-  const r = db.prepare("SELECT revision,pending,preview FROM conversation WHERE id=1").get();
+  const r = db.prepare("SELECT * FROM conversation WHERE id=1").get();
   if (!r) throw new Error("Missing conversation state");
   return {
     revision: Number(r.revision),
     pending: !!r.pending,
+    ...((r.approval_mode === "cautious" || r.approval_mode === "allow") && {
+      approvalMode: r.approval_mode,
+    }),
+    ...(typeof r.approval === "string" && { approval: JSON.parse(r.approval) }),
     ...(r.preview !== null && { preview: JSON.parse(String(r.preview)) }),
   };
 }
@@ -183,6 +187,10 @@ export function insertMessage(db: DatabaseSync, message: ChatMessage) {
   );
 }
 
+const approvalColumns = `
+  ALTER TABLE conversation ADD COLUMN approval_mode TEXT CHECK(approval_mode IN ('allow','cautious'));
+  ALTER TABLE conversation ADD COLUMN approval TEXT CHECK(approval IS NULL OR json_valid(approval));
+`;
 const schema = `
   CREATE TABLE settings(id INTEGER PRIMARY KEY CHECK(id=1), time_zone TEXT) STRICT;
   CREATE TABLE lists(position INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
@@ -204,6 +212,7 @@ function importDatabase(directory: string, filename: string) {
       transaction(db, () => {
         db.exec(schema);
         db.exec(binTable);
+        db.exec(approvalColumns);
         db.prepare("INSERT INTO settings VALUES(1,?)").run(planner.timeZone);
         const list = db.prepare("INSERT INTO lists(id,name) VALUES(?,?)");
         for (const l of planner.lists) list.run(l.id, l.name);
@@ -223,15 +232,17 @@ function importDatabase(directory: string, filename: string) {
         }
         const series = db.prepare("INSERT INTO series VALUES(?,?)");
         for (const [id, s] of Object.entries(planner.series)) series.run(id, JSON.stringify(s));
-        db.prepare("INSERT INTO conversation VALUES(1,?,?,?)").run(
+        db.prepare("INSERT INTO conversation VALUES(1,?,?,?,?,?)").run(
           chat.revision,
           Number(chat.pending),
           JSON.stringify(chat.preview) ?? null,
+          chat.approvalMode ?? null,
+          JSON.stringify(chat.approval) ?? null,
         );
         for (const message of chat.messages) insertMessage(db, message);
         deepStrictEqual(readPlannerDocument(db), planner);
         deepStrictEqual(readConversation(db), chat);
-        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=2");
+        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=3");
       });
     } finally {
       db.close();
@@ -254,16 +265,20 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (
       db.prepare("PRAGMA application_id").get()?.application_id !== 1414480975 ||
-      (version !== 1 && version !== 2)
+      (version !== 1 && version !== 2 && version !== 3)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version === 1 && !readOnly)
+    if (version !== 3 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
           db.exec("PRAGMA user_version=2");
+        }
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 2) {
+          db.exec(approvalColumns);
+          db.exec("PRAGMA user_version=3");
         }
       });
     return db;

@@ -15,6 +15,8 @@ import { reply as agentReply } from "./agent.ts";
 import { taskTools } from "./task-tools.ts";
 import { bulkPreviews, plannerRouter } from "./planner.ts";
 import { PlannerError } from "./task-details.ts";
+import { ApprovalTurn } from "./chat-approval.ts";
+import { chatWriteReview } from "./task-request.ts";
 import { ZodError } from "zod";
 import type { BulkPreview } from "../shared/chat.ts";
 
@@ -27,6 +29,7 @@ interface AppDependencies {
 export function createApp({ reply, tasks, chat }: AppDependencies) {
   const app = express();
   const bulk = bulkPreviews(tasks);
+  let reviewTurn: ApprovalTurn | undefined;
   app.use(express.json({ limit: "1mb" }));
 
   async function respond(
@@ -35,6 +38,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     view?: ViewContext,
     interactive = false,
     previous?: ChatQuestion,
+    signal?: AbortSignal,
   ) {
     let preview: BulkPreview | undefined;
     let interactionResult: QuestionResult | undefined;
@@ -61,6 +65,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
           ),
           current,
           { view, lists, timeZone, question: previous },
+          signal,
         );
     return {
       reply: preview ? answer : (interactionResult?.reply ?? answer),
@@ -81,12 +86,30 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       const input = chatRequestSchema.safeParse(req.body);
       if (!input.success)
         return res.status(400).json({ error: "请提供对话记录，并以用户消息结尾。" });
-      return res.json(await respond(input.data.messages, port, input.data.context));
+      const result = await chatWriteReview.run(
+        async () => {
+          if (chat.state().approvalMode === "cautious")
+            throw new PlannerError("审慎模式下请通过聊天面板提交并审批更改。");
+        },
+        () => respond(input.data.messages, port, input.data.context),
+      );
+      return res.json(result);
     }
     const command = conversationCommand.parse(req.body);
     const current = chat.state();
-    if (current.revision !== command.revision || current.pending)
+    if (current.revision !== command.revision)
       return res.status(409).json({ error: "对话已更新，请查看最新消息。" });
+    if (command.action === "review") {
+      if (!reviewTurn || !current.approval || command.token !== current.approval.token)
+        return res.status(409).json({ error: "审批已更新，请查看最新消息。" });
+      await reviewTurn.decide(command.allow);
+      return res.json(chat.read());
+    }
+    if (current.pending) return res.status(409).json({ error: "请先完成当前对话或审批。" });
+    if (command.action === "setApprovalMode") {
+      chat.setApprovalMode(command.revision, command.mode);
+      return res.json(chat.read());
+    }
     if (command.action === "clear") {
       if (current.preview) bulk.discard(current.preview.token);
       chat.clear(command.revision);
@@ -101,12 +124,18 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       chat.begin(command.revision, content);
       const pendingRevision = command.revision + 1;
       if (current.preview) bulk.discard(current.preview.token);
+      const work = (signal?: AbortSignal) =>
+        command.action === "answer"
+          ? resolveQuestion(tasks, port, previous!, command.answer)
+          : respond(chat.context(), port, command.context, true, previous, signal);
+      if (current.approvalMode === "cautious") {
+        reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision);
+        await reviewTurn.start(work);
+        return res.json(chat.read());
+      }
       let result: QuestionResult & { preview?: BulkPreview };
       try {
-        result =
-          command.action === "answer"
-            ? await resolveQuestion(tasks, port, previous!, command.answer)
-            : await respond(chat.context(), port, command.context, true, previous);
+        result = await work();
       } catch (error) {
         chat.appendReply(pendingRevision, true, interruptedReply);
         throw error;
