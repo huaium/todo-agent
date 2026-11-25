@@ -4,11 +4,13 @@ import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/p
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ReorderTasks, type RowControls } from "./ReorderTasks.tsx";
+import type { SortChoice } from "./task-sort.ts";
 interface Props {
   items: PlannerTask[];
-  data: Planner;
+  tasks: PlannerTask[];
+  lists: Planner["lists"];
   view: string;
-  manual: boolean;
+  sort: SortChoice;
   refresh(): Promise<void>;
   today: string;
   open(id: string): void;
@@ -18,9 +20,10 @@ interface Props {
 }
 export function TaskList({
   items,
-  data,
+  tasks,
+  lists,
   view,
-  manual,
+  sort,
   refresh,
   today,
   open,
@@ -28,6 +31,7 @@ export function TaskList({
   deleting,
   act,
 }: Props) {
+  const manual = sort.method === "manual";
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<TaskNotice>();
   const groups = new Map<string, PlannerTask[]>();
@@ -50,7 +54,7 @@ export function TaskList({
     view === "today"
       ? Number(a !== "已逾期") - Number(b !== "已逾期")
       : view === "upcoming"
-        ? a.localeCompare(b)
+        ? a.localeCompare(b) * (sort.method === "due" && sort.reverse ? -1 : 1)
         : Number(a === "已完成") - Number(b === "已完成"),
   );
   const patch = (id: string, changes: object) => act("planner/tasks/" + id, "PATCH", { changes });
@@ -59,7 +63,7 @@ export function TaskList({
       setConfirmation({ text: (task.done ? "已重新打开「" : "已完成「") + task.title + "」" });
   }
   const byParent = new Map<string, PlannerTask[]>();
-  for (const t of data.tasks) {
+  for (const t of tasks) {
     if (t.parentId) {
       const siblings = byParent.get(t.parentId) ?? [];
       siblings.push(t);
@@ -73,7 +77,7 @@ export function TaskList({
   }
   function render(task: PlannerTask, ancestors: Set<string>, controls?: RowControls) {
     const children = (byParent.get(task.id) ?? []).filter((t) => !ancestors.has(t.id));
-    const list = data.lists.find((l) => l.id === (task.listId ?? inbox));
+    const list = lists.find((l) => l.id === (task.listId ?? inbox));
     const meta = [
       view !== "list:" + list?.id && list?.name,
       task.repeat && repeatLabels[task.repeat],

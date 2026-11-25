@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Button, Dropdown, Input } from "@heroui/react";
 import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
@@ -9,7 +9,9 @@ import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
-import { cancelTaskRowAnimations, revealTaskResults } from "./task-row-motion.ts";
+import { cancelTaskRowAnimations, publishTaskRows, revealTaskResults } from "./task-row-motion.ts";
+import { SortMenu } from "./SortMenu.tsx";
+import { sortTasks, useViewSort, type SortChoice } from "./task-sort.ts";
 
 const views = [
   ["today", "今天", ""],
@@ -19,26 +21,21 @@ const views = [
   ["done", "已完成", "✓"],
 ] as const;
 
-const dateOrderKey = "planner-date-order";
-function readManualDates() {
-  try {
-    return localStorage.getItem(dateOrderKey) === "manual";
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "SecurityError") return false;
-    throw error;
-  }
-}
-
 export default function App() {
-  const [view, setView] = useState("today");
+  const [activeView, setView] = useState("today");
+  const [query, setQuery] = useState("");
+  const view =
+    query.trim() && activeView !== "bin" && !activeView.startsWith("list:") ? "all" : activeView;
   const showBin = view === "bin";
   const { data, bin, ready, refreshRevision, error, setError, act, changed, refresh, today, due } =
     usePlanner(showBin);
-  const [manualDates, setManualDates] = useState(readManualDates);
-  const dateView = view === "today" || view === "upcoming";
+  const [sort, selectSort] = useViewSort(activeView);
+  const orderedTasks = useMemo(() => sortTasks(data.tasks, sort), [data.tasks, sort]);
+  function changeSort(choice: SortChoice) {
+    publishTaskRows(data.tasks, () => selectSort(choice));
+  }
   const [pane, setPane] = useState("list");
   const [selected, setSelected] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
   const [tag, setTag] = useState("");
   const [priority, setPriority] = useState("");
   const [listFilter, setListFilter] = useState("");
@@ -57,7 +54,6 @@ export default function App() {
     priority,
     listFilter,
     status,
-    manualDates,
     resultsReady,
     refreshRevision,
   ]);
@@ -92,7 +88,7 @@ export default function App() {
     if (v === "done") return t.done;
     return v === "all" || v === "list:" + (t.listId ?? inbox);
   }
-  const items = data.tasks.filter(
+  const items = orderedTasks.filter(
     (t) =>
       inView(t, view) &&
       (!tag || t.tags?.includes(tag)) &&
@@ -110,12 +106,6 @@ export default function App() {
           .toLocaleLowerCase()
           .includes(query.trim().toLocaleLowerCase())),
   );
-  if (dateView && !manualDates)
-    items.sort(
-      (a, b) =>
-        (a.dueDate ?? "").localeCompare(b.dueDate ?? "") ||
-        (a.dueTime ?? "99").localeCompare(b.dueTime ?? "99"),
-    );
   function navigate(v: string, nextTag = "") {
     setView(v);
     setTag(nextTag);
@@ -129,20 +119,6 @@ export default function App() {
   function open(id: string) {
     setSelected(id);
     setPane("editor");
-  }
-  function toggleDateOrder() {
-    setManualDates(!manualDates);
-    try {
-      localStorage.setItem(dateOrderKey, manualDates ? "date" : "manual");
-    } catch (error) {
-      if (
-        !(
-          error instanceof DOMException &&
-          ["SecurityError", "QuotaExceededError"].includes(error.name)
-        )
-      )
-        throw error;
-    }
   }
   function back() {
     setSelected(null);
@@ -365,10 +341,7 @@ export default function App() {
             aria-label={showBin ? "搜索回收站" : "搜索任务"}
             placeholder={showBin ? "搜索回收站" : "搜索任务、清单或标签"}
             value={query}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              if (!query && !personal && !showBin) setView("all");
-            }}
+            onChange={(e) => setQuery(e.target.value)}
           />
           {!showBin && (
             <Button
@@ -509,16 +482,7 @@ export default function App() {
                   </Dropdown.Popover>
                 </Dropdown>
               )}
-              {dateView && (
-                <Button
-                  size="sm"
-                  variant={manualDates ? "secondary" : "tertiary"}
-                  aria-pressed={manualDates}
-                  onPress={toggleDateOrder}
-                >
-                  手动排序
-                </Button>
-              )}
+              <SortMenu choice={sort} onChange={changeSort} />
             </div>
             <form className="capture" onSubmit={create}>
               <Button
@@ -550,9 +514,10 @@ export default function App() {
             {ready ? (
               <TaskList
                 items={items}
-                manual={!dateView || manualDates}
+                sort={sort}
                 refresh={refresh}
-                data={data}
+                tasks={orderedTasks}
+                lists={data.lists}
                 view={view}
                 today={today}
                 open={open}
