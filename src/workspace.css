@@ -249,6 +249,9 @@
   color: var(--muted);
   text-decoration: line-through;
 }
+.planner-app .checkbox:not([data-selected="true"]) .checkbox__control {
+  border: 1px solid var(--muted);
+}
 .nested {
   margin-inline-start: 12px;
   padding-inline-start: 10px;
@@ -413,20 +416,40 @@
   grid-column: 1/-1;
 }
 .child-editor {
+  margin-block-start: 18px;
   display: grid;
   gap: 10px;
 }
 .editor-actions {
   flex-wrap: wrap;
 }
+.editor {
+  container-type: inline-size;
+}
+.editor .date-field__group,
+.editor .time-field__group {
+  width: 100%;
+}
+@container (max-width: 480px) {
+  .schedule {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .mobile-only,
 [hidden] {
   display: none !important;
 }
 @media (min-width: 761px) and (max-width: 1000px) {
-  .brand { gap: 6px; padding-inline: 0; }
-  .brand b { font-size: 1.13rem; }
-  .brand img { width: 26px; }
+  .brand {
+    gap: 6px;
+    padding-inline: 0;
+  }
+  .brand b {
+    font-size: 1.13rem;
+  }
+  .brand img {
+    width: 26px;
+  }
   .planner-app {
     grid-template-columns: 150px minmax(0, 1fr) 245px;
   }
@@ -481,8 +504,9 @@
     min-height: 44px;
   }
   .planner-app .button--icon-only,
-  .planner-app .checkbox {
+  .planner-app .checkbox__content {
     min-width: 44px;
+    min-height: 44px;
   }
   .chat-pane {
     border: 0;

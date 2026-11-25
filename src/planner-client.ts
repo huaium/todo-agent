@@ -57,14 +57,14 @@ export function usePlanner() {
     channel.current?.postMessage("changed");
     await refresh();
   };
-  const act = async (path: string, method: string, body?: unknown) => {
+  const act: Action = async (path, method, body, report = setError) => {
     try {
       setError("");
       await api(path, method, body);
       await changed();
       return true;
     } catch (e) {
-      setError(e instanceof Error ? e.message : "无法保存更改。");
+      report(e instanceof Error ? e.message : "无法保存更改。");
       return false;
     }
   };
@@ -113,4 +113,9 @@ export function usePlanner() {
   }, [clock, data, refresh]);
   return { data, ready, error, setError, act, changed, refresh, today: clock.slice(0, 10), due };
 }
-export type Action = (path: string, method: string, body?: unknown) => Promise<boolean>;
+export type Action = (
+  path: string,
+  method: string,
+  body?: unknown,
+  report?: (message: string) => void,
+) => Promise<boolean>;

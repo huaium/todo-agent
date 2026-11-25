@@ -77,9 +77,11 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
             aria-label={(task.done ? "重新打开" : "完成") + task.title}
             onChange={() => void toggleDone(task)}
           >
-            <Checkbox.Control>
-              <Checkbox.Indicator />
-            </Checkbox.Control>
+            <Checkbox.Content>
+              <Checkbox.Control>
+                <Checkbox.Indicator />
+              </Checkbox.Control>
+            </Checkbox.Content>
           </Checkbox>
           <div className="row-text">
             <Button variant="ghost" className="title-button" onPress={() => open(task.id)}>

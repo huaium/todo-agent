@@ -29,6 +29,9 @@ export default function App() {
   const [filters, setFilters] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [captureError, setCaptureError] = useState("");
+  const [listError, setListError] = useState("");
+  const [savingList, setSavingList] = useState(false);
   const capture = useRef<HTMLInputElement>(null);
   const [listEdit, setListEdit] = useState<string | null>(null);
   const [listName, setListName] = useState("");
@@ -93,32 +96,47 @@ export default function App() {
   function back() {
     setSelected(null);
     setPane("list");
+    requestAnimationFrame(() => capture.current?.focus());
   }
   async function create(e: FormEvent) {
     e.preventDefault();
     if (!draft.trim() || saving) return;
     setSaving(true);
-    const ok = await act("planner/tasks", "POST", {
-      title: draft.trim(),
-      ...(personal && { listId: personal }),
-      ...(view === "today" && { dueDate: today }),
-    });
+    setCaptureError("");
+    const ok = await act(
+      "planner/tasks",
+      "POST",
+      {
+        title: draft.trim(),
+        ...(personal && { listId: personal }),
+        ...(view === "today" && { dueDate: today }),
+      },
+      setCaptureError,
+    );
     setSaving(false);
     if (ok) setDraft("");
     capture.current?.focus();
   }
   async function saveList(e: FormEvent) {
     e.preventDefault();
-    if (!listName.trim() || listEdit === null) return;
+    if (!listName.trim() || listEdit === null || savingList) return;
+    setSavingList(true);
+    setListError("");
     const isNew = listEdit === "new";
     if (
-      await act(isNew ? "planner/lists" : "planner/lists/" + listEdit, isNew ? "POST" : "PATCH", {
-        name: listName.trim(),
-      })
+      await act(
+        isNew ? "planner/lists" : "planner/lists/" + listEdit,
+        isNew ? "POST" : "PATCH",
+        {
+          name: listName.trim(),
+        },
+        setListError,
+      )
     ) {
       setListEdit(null);
       setListName("");
     }
+    setSavingList(false);
   }
   async function notify() {
     if (!("Notification" in window)) return;
@@ -174,6 +192,7 @@ export default function App() {
             aria-label="新建清单"
             onPress={() => {
               setListEdit("new");
+              setListError("");
               setListName("");
             }}
           >
@@ -206,12 +225,18 @@ export default function App() {
               value={listName}
               onChange={(e) => setListName(e.target.value)}
             />
-            <Button size="sm" type="submit">
+            <Button size="sm" type="submit" isPending={savingList} isDisabled={!listName.trim()}>
               保存
             </Button>
-            <Button size="sm" variant="tertiary" onPress={() => setListEdit(null)}>
+            <Button
+              size="sm"
+              variant="tertiary"
+              isDisabled={savingList}
+              onPress={() => setListEdit(null)}
+            >
               取消
             </Button>
+            {listError && <p role="alert">{listError}</p>}
           </form>
         )}
         {tags.length > 0 && (
@@ -324,12 +349,13 @@ export default function App() {
         <div className="list-scroll" hidden={!!selectedTask}>
           {due.length > 0 && (
             <section className="reminders">
-              <button
-                onClick={() => setRemindersOpen(!remindersOpen)}
+              <Button
+                variant="ghost"
+                onPress={() => setRemindersOpen(!remindersOpen)}
                 aria-expanded={remindersOpen}
               >
                 到点提醒 · {due.length} {remindersOpen ? "▾" : "▸"}
-              </button>
+              </Button>
               {remindersOpen &&
                 due.map((t) => (
                   <div key={t.id}>
@@ -337,23 +363,27 @@ export default function App() {
                       {t.title}
                       <small>{pendingReminder(t)?.replace("T", " ")}</small>
                     </span>
-                    <button
-                      onClick={() =>
-                        act("planner/tasks/" + t.id, "PATCH", { changes: { done: true } })
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onPress={() =>
+                        void act("planner/tasks/" + t.id, "PATCH", { changes: { done: true } })
                       }
                     >
                       完成
-                    </button>
-                    <button
-                      onClick={() =>
-                        act("planner/reminders/" + t.id, "POST", {
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="tertiary"
+                      onPress={() =>
+                        void act("planner/reminders/" + t.id, "POST", {
                           at: pendingReminder(t),
                           action: "snooze",
                         })
                       }
                     >
                       稍后 10 分钟
-                    </button>
+                    </Button>
                   </div>
                 ))}
             </section>
@@ -378,6 +408,7 @@ export default function App() {
                       id="rename"
                       onAction={() => {
                         setListEdit(personal);
+                        setListError("");
                         setListName(label);
                         setPane("nav");
                       }}
@@ -422,6 +453,7 @@ export default function App() {
               }}
             />
           </form>
+          {captureError && <p role="alert">{captureError}</p>}
           {ready ? (
             <TaskList items={items} data={data} view={view} today={today} open={open} act={act} />
           ) : (
