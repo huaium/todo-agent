@@ -64,7 +64,7 @@ test("a failed import publishes neither store; correcting the source allows retr
   );
   const db = openDatabase(dir);
   assert.deepEqual(readPlannerDocument(db).tasks, [task]);
-  db.exec("PRAGMA user_version=2");
+  db.exec("PRAGMA user_version=3");
   db.close();
   assert.throws(() => openDatabase(dir), /schema version/);
 });
@@ -74,4 +74,17 @@ test("unrecognized database is never replaced with legacy JSON", (t) => {
   db.exec("CREATE TABLE unrelated(x TEXT); PRAGMA user_version=1");
   db.close();
   assert.throws(() => openDatabase(dir), /Unrecognized/);
+});
+
+test("opens a version 1 planner and adds the bin without changing its tasks", (t) => {
+  const dir = fixture(t);
+  const task = { id: "before-bin", title: "历史任务", done: false };
+  writeFileSync(join(dir, "tasks.json"), JSON.stringify([task]));
+  const db = openDatabase(dir);
+  db.exec("DROP TABLE task_bin; PRAGMA user_version=1");
+  db.close();
+  const migrated = openDatabase(dir);
+  assert.deepEqual(readPlannerDocument(migrated).tasks, [task]);
+  assert.equal(migrated.prepare("SELECT count(*) AS n FROM task_bin").get()?.n, 0);
+  migrated.close();
 });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
-import { readPlanner, readTasks, transaction, type Series } from "./database.ts";
+import { binRetentionMs, readPlanner, readTasks, transaction, type Series } from "./database.ts";
 import { PlannerError, type TaskDetails } from "./task-details.ts";
 import {
   dayDistance,
@@ -10,6 +10,7 @@ import {
   offsetDate,
   pendingReminder,
   type Planner,
+  type BinItem,
   type PlannerTask,
 } from "../shared/planner.ts";
 
@@ -21,6 +22,9 @@ export interface TaskStore {
   create(title: string, details?: TaskDetails): PlannerTask;
   update(id: string, changes: Changes, scope?: "one" | "future"): PlannerTask | undefined;
   remove(id: string): boolean;
+  bin(): BinItem[];
+  restore(id: string, deletedAt: number): boolean;
+  purgeExpired(): void;
   editList(id: string | null, name: string | null): string;
   reschedule(ids: string[], dueDate: string): void;
   remind(id: string, expected: string, action: "claim" | "snooze"): boolean;
@@ -33,6 +37,10 @@ function shiftedReminder(reminder: string | null | undefined, days: number) {
 }
 export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskStore {
   const byId = db.prepare("SELECT payload FROM tasks WHERE id=?");
+  const purge = db.prepare("DELETE FROM task_bin WHERE deleted_at<=?");
+  const purgeExpired = () => {
+    purge.run(now().getTime() - binRetentionMs);
+  };
   const byParent = db.prepare(
     "SELECT payload FROM tasks WHERE json_extract(payload,'$.parentId')=? ORDER BY position",
   );
@@ -212,6 +220,16 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
       return transaction(db, () => {
         const removed = get(id);
         if (!removed) return false;
+        const series =
+          removed.seriesId && !removed.done
+            ? db.prepare("SELECT payload FROM series WHERE id=?").get(removed.seriesId)
+            : undefined;
+        db.prepare("INSERT INTO task_bin(id,deleted_at,payload,series) VALUES(?,?,?,?)").run(
+          id,
+          now().getTime(),
+          JSON.stringify(removed),
+          series?.payload ?? null,
+        );
         db.prepare("DELETE FROM tasks WHERE id=?").run(id);
         for (const p of matching(byParent, id)) {
           delete p.parentId;
@@ -219,6 +237,48 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         }
         if (typeof removed.seriesId === "string" && !removed.done)
           db.prepare("DELETE FROM series WHERE id=?").run(removed.seriesId);
+        return true;
+      });
+    },
+    purgeExpired,
+    bin() {
+      return db
+        .prepare(`SELECT id, deleted_at, json_extract(payload,'$.title') AS title,
+        json_extract(payload,'$.listId') AS list_id FROM task_bin
+        WHERE deleted_at>? ORDER BY deleted_at DESC,id`)
+        .all(now().getTime() - binRetentionMs)
+        .map((row) => ({
+          id: String(row.id),
+          title: String(row.title),
+          listId: String(row.list_id ?? inbox),
+          deletedAt: Number(row.deleted_at),
+          expiresAt: Number(row.deleted_at) + binRetentionMs,
+        }));
+    },
+    restore(id, deletedAt) {
+      return transaction(db, () => {
+        purgeExpired();
+        const row = db
+          .prepare("SELECT payload,series FROM task_bin WHERE id=? AND deleted_at=?")
+          .get(id, deletedAt);
+        if (!row) return false;
+        const task: PlannerTask = JSON.parse(String(row.payload));
+        const listExists = (listId: string) =>
+          db.prepare("SELECT 1 FROM lists WHERE id=?").get(listId);
+        if (task.listId && !listExists(task.listId)) delete task.listId;
+        if (task.parentId) {
+          const parent = get(task.parentId);
+          if (!parent || parent.repeat) delete task.parentId;
+          else task.listId = parent.listId;
+        }
+        if (task.seriesId && row.series !== null) {
+          const series: Series = JSON.parse(String(row.series));
+          if (series.template.listId && !listExists(series.template.listId))
+            delete series.template.listId;
+          putSeries.run(task.seriesId, JSON.stringify(series));
+        }
+        save(task);
+        db.prepare("DELETE FROM task_bin WHERE id=?").run(id);
         return true;
       });
     },

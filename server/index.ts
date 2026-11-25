@@ -5,7 +5,10 @@ import { openConversation } from "./conversation.ts";
 
 const db = openDatabase("data");
 const chat = openConversation(db);
-const app = createApp({ tasks: createTaskStore(db), chat });
+const tasks = createTaskStore(db);
+tasks.purgeExpired();
+const app = createApp({ tasks, chat });
+const cleanup = setInterval(tasks.purgeExpired, 60_000).unref();
 const port = Number(process.env.PORT || 3000);
 app
   .listen(port, "127.0.0.1", (error?: Error) => {
@@ -13,4 +16,7 @@ app
     chat.recover();
     console.log(`小明智能体已启动：http://127.0.0.1:${port}`);
   })
-  .once("close", () => db.close());
+  .once("close", () => {
+    clearInterval(cleanup);
+    db.close();
+  });

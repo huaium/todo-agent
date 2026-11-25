@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, rmdirSync, writeFileSync } 
 import { dirname, join, resolve } from "node:path";
 import {
   openDatabase,
+  readBinBackup,
   readConversation,
   readLegacyFiles,
   readPlannerDocument,
@@ -15,7 +16,11 @@ export function exportStorage(directory: string, destination: string) {
   try {
     snapshot = transaction(
       db,
-      () => ({ planner: readPlannerDocument(db), chat: readConversation(db) }),
+      () => ({
+        planner: readPlannerDocument(db),
+        chat: readConversation(db),
+        bin: readBinBackup(db),
+      }),
       "DEFERRED",
     );
   } finally {
@@ -31,6 +36,8 @@ export function exportStorage(directory: string, destination: string) {
       options,
     );
     writeFileSync(join(staging, "tasks.json.chat.json"), JSON.stringify(snapshot.chat), options);
+    if (snapshot.bin.length)
+      writeFileSync(join(staging, "tasks.bin.json"), JSON.stringify(snapshot.bin), options);
     deepStrictEqual(readLegacyFiles(staging), snapshot);
     // Reserve the new name exclusively, including against another export to the same target.
     mkdirSync(target, { mode: 0o700 });

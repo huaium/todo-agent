@@ -51,6 +51,13 @@ export function bulkPreviews(store: TaskStore) {
 export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPreviews>) {
   const router = Router();
   router.get("/", (_req, res) => res.json(store.snapshot()));
+  router.get("/bin", (_req, res) => res.set("Cache-Control", "no-store").json(store.bin()));
+  router.post("/bin/:id/restore", (req, res) => {
+    const { deletedAt } = z.strictObject({ deletedAt: z.number().int() }).parse(req.body);
+    if (!store.restore(req.params.id, deletedAt))
+      return res.status(404).json({ error: "这条任务已恢复、已过期或已再次删除，请刷新回收站。" });
+    res.sendStatus(204);
+  });
   router.post("/timezone", (req, res) => {
     store.initializeZone(z.string().min(1).parse(req.body.timeZone));
     res.json(store.snapshot());

@@ -33,6 +33,32 @@ export type Series = {
   template: PlannerTask;
 };
 export type PlannerDocument = Planner & { version: 1; series: Record<string, Series> };
+export const binRetentionMs = 30 * 24 * 60 * 60 * 1000;
+const binSchema = z.array(
+  z.object({
+    task: taskSchema,
+    deletedAt: z.number().int(),
+    series: plannerSchema.shape.series.valueType.nullable(),
+  }),
+);
+const binTable = `
+  CREATE TABLE task_bin(id TEXT PRIMARY KEY, deleted_at INTEGER NOT NULL, payload TEXT NOT NULL CHECK(json_valid(payload)), series TEXT CHECK(series IS NULL OR json_valid(series))) STRICT;
+  CREATE INDEX bin_deletion ON task_bin(deleted_at);
+`;
+
+export function readBinBackup(db: DatabaseSync, now = Date.now()): z.infer<typeof binSchema> {
+  if (db.prepare("PRAGMA user_version").get()?.user_version === 1) return [];
+  return db
+    .prepare(
+      "SELECT payload,deleted_at,series FROM task_bin WHERE deleted_at>? ORDER BY deleted_at,id",
+    )
+    .all(now - binRetentionMs)
+    .map((row) => ({
+      task: JSON.parse(String(row.payload)),
+      deletedAt: Number(row.deleted_at),
+      series: row.series === null ? null : JSON.parse(String(row.series)),
+    }));
+}
 
 export function transaction<T>(
   db: DatabaseSync,
@@ -91,7 +117,8 @@ export function readLegacyFiles(directory: string) {
       return parsed;
     },
   );
-  return { planner, chat };
+  const bin = readLegacy(join(directory, "tasks.bin.json"), [], (value) => binSchema.parse(value));
+  return { planner, chat, bin };
 }
 
 export function readTasks(db: DatabaseSync): PlannerTask[] {
@@ -167,7 +194,7 @@ const schema = `
   CREATE TABLE messages(seq INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, question TEXT) STRICT;
 `;
 function importDatabase(directory: string, filename: string) {
-  const { planner, chat } = readLegacyFiles(directory);
+  const { planner, chat, bin } = readLegacyFiles(directory);
   const staging = mkdtempSync(join(directory, ".sqlite-import-"));
   const path = join(staging, "planner.sqlite");
   try {
@@ -176,11 +203,24 @@ function importDatabase(directory: string, filename: string) {
     try {
       transaction(db, () => {
         db.exec(schema);
+        db.exec(binTable);
         db.prepare("INSERT INTO settings VALUES(1,?)").run(planner.timeZone);
         const list = db.prepare("INSERT INTO lists(id,name) VALUES(?,?)");
         for (const l of planner.lists) list.run(l.id, l.name);
         const task = db.prepare("INSERT INTO tasks(id,payload) VALUES(?,?)");
         for (const t of planner.tasks) task.run(t.id, JSON.stringify(t));
+        const archived = db.prepare(
+          "INSERT INTO task_bin(id,deleted_at,payload,series) VALUES(?,?,?,?)",
+        );
+        for (const entry of bin) {
+          if (entry.deletedAt <= Date.now() - binRetentionMs) continue;
+          archived.run(
+            entry.task.id,
+            entry.deletedAt,
+            JSON.stringify(entry.task),
+            entry.series && JSON.stringify(entry.series),
+          );
+        }
         const series = db.prepare("INSERT INTO series VALUES(?,?)");
         for (const [id, s] of Object.entries(planner.series)) series.run(id, JSON.stringify(s));
         db.prepare("INSERT INTO conversation VALUES(1,?,?,?)").run(
@@ -191,7 +231,7 @@ function importDatabase(directory: string, filename: string) {
         for (const message of chat.messages) insertMessage(db, message);
         deepStrictEqual(readPlannerDocument(db), planner);
         deepStrictEqual(readConversation(db), chat);
-        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=1");
+        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=2");
       });
     } finally {
       db.close();
@@ -211,13 +251,21 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
   }
   const db = new DatabaseSync(filename, { readOnly });
   try {
+    const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (
       db.prepare("PRAGMA application_id").get()?.application_id !== 1414480975 ||
-      db.prepare("PRAGMA user_version").get()?.user_version !== 1
+      (version !== 1 && version !== 2)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
+    if (version === 1 && !readOnly)
+      transaction(db, () => {
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
+          db.exec(binTable);
+          db.exec("PRAGMA user_version=2");
+        }
+      });
     return db;
   } catch (error) {
     db.close();

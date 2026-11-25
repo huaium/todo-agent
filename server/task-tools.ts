@@ -212,7 +212,7 @@ export function taskTools(
     ),
     taskTool(
       "deleteTask",
-      "删除用户指定的单条任务",
+      "把用户指定的单条任务移入回收站，可在 30 天内恢复。",
       z.strictObject({ id }),
       ({ id }) => request("DELETE", id),
       true,

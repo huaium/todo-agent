@@ -29,6 +29,13 @@ export interface PersonalList {
   id: string;
   name: string;
 }
+export interface BinItem {
+  id: string;
+  title: string;
+  listId: string;
+  deletedAt: number;
+  expiresAt: number;
+}
 export interface Planner {
   tasks: PlannerTask[];
   lists: PersonalList[];

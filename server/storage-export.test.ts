@@ -26,6 +26,9 @@ test("rollback export preserves post-cutover data and refuses an existing destin
     tags: ["工作"],
   });
   tasks.update(task.id, { done: true });
+  const next = tasks.list().find((item) => !item.done)!;
+  tasks.remove(next.id);
+  const [deleted] = tasks.bin();
   const parent = tasks.create("采购");
   tasks.create("米", { parentId: parent.id, notes: "留收据" });
   const chat = openConversation(db);
@@ -51,5 +54,14 @@ test("rollback export preserves post-cutover data and refuses an existing destin
   const imported = openDatabase(target);
   assert.deepEqual(readPlannerDocument(imported), planner);
   assert.deepEqual(readConversation(imported), history);
+  const restored = createTaskStore(imported);
+  assert.deepEqual(restored.bin(), [deleted]);
+  assert.ok(restored.restore(next.id, deleted.deletedAt));
+  assert.deepEqual(
+    restored.list().find((item) => item.id === next.id),
+    next,
+  );
+  restored.update(next.id, { done: true });
+  assert.ok(restored.list().some((item) => !item.done && item.seriesId === next.seriesId));
   imported.close();
 });
