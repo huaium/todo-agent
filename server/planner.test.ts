@@ -3,22 +3,25 @@ import { test, type TestContext } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createJsonTaskStore } from "./task-store.ts";
+import { createTaskStore } from "./sqlite-task-store.ts";
+import { openDatabase } from "./database.ts";
 import { nextDate, localMinute } from "../shared/planner.ts";
 import { bulkPreviews } from "./planner.ts";
-async function fixture(t: TestContext) {
+async function fixture(t: TestContext, legacy?: unknown) {
   const dir = await mkdtemp(join(tmpdir(), "planner-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const file = join(dir, "tasks.json");
-  const store = createJsonTaskStore(file, () => new Date("2026-01-30T10:00:00Z"));
+  if (legacy) await writeFile(file, JSON.stringify(legacy));
+  const db = openDatabase(dir);
+  t.after(() => db.close());
+  const store = createTaskStore(db, () => new Date("2026-01-30T10:00:00Z"));
   return { file, store };
 }
 test("旧清单原子迁移，移动父任务时同步移动所有子项，删除清单保留任务", async (t) => {
-  const { file, store } = await fixture(t);
   const old = { id: "legacy", done: false, title: "报告", extension: 42 };
-  await writeFile(file, JSON.stringify([old]));
+  const { file, store } = await fixture(t, [old]);
   assert.deepEqual(store.list(), [old]);
-  assert.equal(JSON.parse(await readFile(file, "utf8")).version, 1);
+  assert.equal(await readFile(file, "utf8"), JSON.stringify([old]));
   const list = store.editList(null, "工作");
   const child = store.create("核对", { parentId: "legacy" });
   const grandchild = store.create("数据", { parentId: child.id });

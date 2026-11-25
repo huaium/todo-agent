@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { z } from "zod";
 import { detailsSchema, PlannerError } from "./task-details.ts";
-import type { TaskStore } from "./task-store.ts";
+import type { TaskStore } from "./sqlite-task-store.ts";
 import { createTaskSchema } from "./tasks.ts";
 import { plannerChanges } from "../shared/task-details.ts";
 export { plannerChanges };
