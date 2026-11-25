@@ -65,7 +65,15 @@ export function ChatPanel({
         </button>
       </div>
       {state ? (
-        <ChatHistory messages={history} pending={sending || state.pending} onSelectPrompt={send} />
+        <ChatHistory
+          messages={history}
+          pending={sending || state.pending}
+          onSelectPrompt={send}
+          disabled={busy}
+          onAnswer={(questionId, answer) =>
+            void submit({ action: "answer", revision: state.revision, questionId, answer })
+          }
+        />
       ) : (
         <div className="scroll thread" role="status">
           {error ? <button onClick={reload}>重新加载对话</button> : "正在读取对话…"}

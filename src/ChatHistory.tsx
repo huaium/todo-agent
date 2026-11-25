@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import type { ChatMessage } from "../shared/chat.ts";
+import type { ChatMessage, QuestionAnswer } from "../shared/chat.ts";
+import { QuestionControls } from "./QuestionControls.tsx";
 
 const examplePrompts = ["帮我记一下买牛奶", "看看我的待办", "今天有哪些任务到期？"];
 
@@ -7,9 +8,17 @@ interface ChatHistoryProps {
   messages: ChatMessage[];
   pending: boolean;
   onSelectPrompt: (prompt: string) => void;
+  disabled: boolean;
+  onAnswer(id: string, answer: QuestionAnswer): void;
 }
 
-export function ChatHistory({ messages, pending, onSelectPrompt }: ChatHistoryProps) {
+export function ChatHistory({
+  messages,
+  pending,
+  onSelectPrompt,
+  disabled,
+  onAnswer,
+}: ChatHistoryProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
   useEffect(() => {
@@ -45,6 +54,16 @@ export function ChatHistory({ messages, pending, onSelectPrompt }: ChatHistoryPr
             <div key={index} className={`message ${message.role}`}>
               <small>{message.role === "user" ? "你" : "小明智能体"}</small>
               <div>{message.content}</div>
+              {index === messages.length - 1 &&
+                message.role === "assistant" &&
+                message.question && (
+                  <QuestionControls
+                    key={message.question.id}
+                    question={message.question}
+                    disabled={disabled}
+                    onAnswer={(answer) => onAnswer(message.question!.id, answer)}
+                  />
+                )}
             </div>
           ))}
           {pending && (
