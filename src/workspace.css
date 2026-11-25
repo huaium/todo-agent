@@ -1,4 +1,7 @@
 .planner-app {
+  --motion-quick: 150ms;
+  --motion-pane: 200ms;
+  --motion-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
   --rail-width: clamp(160px, 15vw, 220px);
   display: grid;
   grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(290px, 35vw, 560px);
@@ -155,6 +158,20 @@
 .reminders > div > span {
   flex: 1;
   min-width: 0;
+}
+.filter-disclosure {
+  display: grid;
+  grid-template-rows: 1fr;
+  flex: none;
+  opacity: 1;
+}
+.filter-disclosure[inert] {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+.filter-clip {
+  min-height: 0;
+  overflow: clip;
 }
 .filters {
   display: grid;
@@ -391,6 +408,20 @@
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
+  .filter-disclosure {
+    transition:
+      grid-template-rows var(--motion-pane) var(--motion-ease),
+      opacity var(--motion-quick) ease-out;
+  }
+  .view-head > div,
+  .editor,
+  .nested {
+    animation: planner-reveal var(--motion-pane) var(--motion-ease);
+  }
+  .editor {
+    --enter-x: 8px;
+    --enter-y: 0px;
+  }
   .deadline-choices {
     transition:
       opacity 150ms ease-out,
@@ -399,6 +430,27 @@
   .message[data-new],
   .deadline-editor-enter {
     animation: chat-fade-in 150ms ease-out;
+  }
+}
+@keyframes planner-reveal {
+  from {
+    opacity: 0;
+    transform: translate(var(--enter-x, 0px), var(--enter-y, 4px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+  .planner-app[data-pane="nav"] .rail,
+  .planner-app[data-pane="chat"] .chat-pane {
+    --enter-x: -10px;
+    --enter-y: 0px;
+    animation: planner-reveal var(--motion-pane) var(--motion-ease);
+  }
+  .planner-app[data-pane="chat"] .chat-pane {
+    --enter-x: 10px;
   }
 }
 @keyframes chat-fade-in {

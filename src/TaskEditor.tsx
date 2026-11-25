@@ -104,7 +104,7 @@ export function TaskEditor({
     <section className="editor">
       <div className="section-top">
         <h2>任务详情</h2>
-        <Button variant="tertiary" onPress={close}>
+        <Button variant="tertiary" autoFocus onPress={close}>
           返回清单
         </Button>
       </div>

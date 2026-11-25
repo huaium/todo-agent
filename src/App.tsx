@@ -329,6 +329,7 @@ export default function App() {
             <Button
               variant={filtered || filters ? "secondary" : "tertiary"}
               aria-expanded={filters}
+              aria-controls="task-filters"
               className={filtered ? "selected-filter" : ""}
               onPress={() => setFilters(!filters)}
             >
@@ -339,41 +340,45 @@ export default function App() {
             小明
           </Button>
         </div>
-        {filters && !showBin && (
-          <div className="filters" role="group" aria-label="任务筛选">
-            <ChoiceField
-              searchable
-              label="清单"
-              value={listFilter}
-              onChange={setListFilter}
-              choices={[
-                { value: "", label: "全部清单" },
-                ...data.lists.map((l) => ({ value: l.id, label: l.name })),
-              ]}
-            />
-            <ChoiceField
-              searchable
-              label="标签"
-              value={tag}
-              onChange={setTag}
-              choices={[{ value: "", label: "全部标签" }, ...options(tags)]}
-            />
-            <ChoiceField
-              label="优先级"
-              value={priority}
-              onChange={setPriority}
-              choices={[{ value: "", label: "全部优先级" }, ...options(priorities)]}
-            />
-            <ChoiceField
-              label="完成状态"
-              value={status}
-              onChange={setStatus}
-              choices={[
-                { value: "", label: "全部状态" },
-                { value: "open", label: "待办" },
-                { value: "done", label: "已完成" },
-              ]}
-            />
+        {!showBin && (
+          <div id="task-filters" className="filter-disclosure" inert={!filters}>
+            <div className="filter-clip">
+              <div className="filters" role="group" aria-label="任务筛选">
+                <ChoiceField
+                  searchable
+                  label="清单"
+                  value={listFilter}
+                  onChange={setListFilter}
+                  choices={[
+                    { value: "", label: "全部清单" },
+                    ...data.lists.map((l) => ({ value: l.id, label: l.name })),
+                  ]}
+                />
+                <ChoiceField
+                  searchable
+                  label="标签"
+                  value={tag}
+                  onChange={setTag}
+                  choices={[{ value: "", label: "全部标签" }, ...options(tags)]}
+                />
+                <ChoiceField
+                  label="优先级"
+                  value={priority}
+                  onChange={setPriority}
+                  choices={[{ value: "", label: "全部优先级" }, ...options(priorities)]}
+                />
+                <ChoiceField
+                  label="完成状态"
+                  value={status}
+                  onChange={setStatus}
+                  choices={[
+                    { value: "", label: "全部状态" },
+                    { value: "open", label: "待办" },
+                    { value: "done", label: "已完成" },
+                  ]}
+                />
+              </div>
+            </div>
           </div>
         )}
         {showBin ? (
@@ -422,7 +427,7 @@ export default function App() {
               </section>
             )}
             <div className="view-head">
-              <div>
+              <div key={view}>
                 <h1>{label}</h1>
                 <p>
                   {new Intl.DateTimeFormat("zh-CN", { dateStyle: "full", timeZone: "UTC" }).format(
