@@ -40,7 +40,6 @@ export function ChatHistory({
     >
       {messages.length === 0 ? (
         <section className="welcome">
-          <img src="/logo.png" alt="" />
           <h2>今天想安排什么？</h2>
           <div className="examples">
             {examplePrompts.map((prompt) => (
