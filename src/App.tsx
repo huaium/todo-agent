@@ -4,6 +4,7 @@ import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
 import { priorities } from "../shared/task.ts";
 import { TaskList } from "./TaskList.tsx";
+import { TaskBin } from "./TaskBin.tsx";
 import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
@@ -18,8 +19,9 @@ const views = [
 ] as const;
 
 export default function App() {
-  const { data, ready, error, setError, act, changed, today, due } = usePlanner();
   const [view, setView] = useState("today");
+  const showBin = view === "bin";
+  const { data, bin, ready, error, setError, act, changed, today, due } = usePlanner(showBin);
   const [pane, setPane] = useState("list");
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -45,6 +47,7 @@ export default function App() {
   const [remindersOpen, setRemindersOpen] = useState(true);
   const personal = view.startsWith("list:") ? view.slice(5) : null;
   const label =
+    (showBin ? "回收站" : undefined) ??
     views.find((v) => v[0] === view)?.[1] ??
     data.lists.find((l) => l.id === personal)?.name ??
     "收件箱";
@@ -185,6 +188,27 @@ export default function App() {
               <small>{data.tasks.filter((t) => inView(t, id)).length || ""}</small>
             </Button>
           ))}
+          <Button
+            variant={showBin ? "secondary" : "ghost"}
+            aria-current={showBin ? "page" : undefined}
+            onPress={() => navigate("bin")}
+          >
+            <i aria-hidden="true">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M3 6h18M9 6V3h6v3M6 6l1 15h10l1-15M10 10v7m4-7v7" />
+              </svg>
+            </i>
+            回收站
+          </Button>
         </div>
         <div className="rail-heading">
           我的清单
@@ -293,27 +317,29 @@ export default function App() {
           <Input
             className="search"
             type="search"
-            aria-label="搜索任务"
-            placeholder="搜索任务、清单或标签"
+            aria-label={showBin ? "搜索回收站" : "搜索任务"}
+            placeholder={showBin ? "搜索回收站" : "搜索任务、清单或标签"}
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              if (!query && !personal) setView("all");
+              if (!query && !personal && !showBin) setView("all");
             }}
           />
-          <Button
-            variant={filtered || filters ? "secondary" : "tertiary"}
-            aria-expanded={filters}
-            className={filtered ? "selected-filter" : ""}
-            onPress={() => setFilters(!filters)}
-          >
-            筛选{filtered ? " •" : ""}
-          </Button>
+          {!showBin && (
+            <Button
+              variant={filtered || filters ? "secondary" : "tertiary"}
+              aria-expanded={filters}
+              className={filtered ? "selected-filter" : ""}
+              onPress={() => setFilters(!filters)}
+            >
+              筛选{filtered ? " •" : ""}
+            </Button>
+          )}
           <Button variant="secondary" className="mobile-only" onPress={() => setPane("chat")}>
             小明
           </Button>
         </div>
-        {filters && (
+        {filters && !showBin && (
           <div className="filters" role="group" aria-label="任务筛选">
             <ChoiceField
               searchable
@@ -350,128 +376,132 @@ export default function App() {
             />
           </div>
         )}
-        <div className="list-scroll" hidden={!!selectedTask}>
-          {due.length > 0 && (
-            <section className="reminders">
-              <Button
-                variant="ghost"
-                onPress={() => setRemindersOpen(!remindersOpen)}
-                aria-expanded={remindersOpen}
-              >
-                到点提醒 · {due.length} {remindersOpen ? "▾" : "▸"}
-              </Button>
-              {remindersOpen &&
-                due.map((t) => (
-                  <div key={t.id}>
-                    <span>
-                      {t.title}
-                      <small>{pendingReminder(t)?.replace("T", " ")}</small>
-                    </span>
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onPress={() =>
-                        void act("planner/tasks/" + t.id, "PATCH", { changes: { done: true } })
-                      }
-                    >
-                      完成
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="tertiary"
-                      onPress={() =>
-                        void act("planner/reminders/" + t.id, "POST", {
-                          at: pendingReminder(t),
-                          action: "snooze",
-                        })
-                      }
-                    >
-                      稍后 10 分钟
-                    </Button>
-                  </div>
-                ))}
-            </section>
-          )}
-          <div className="view-head">
-            <div>
-              <h1>{label}</h1>
-              <p>
-                {new Intl.DateTimeFormat("zh-CN", { dateStyle: "full", timeZone: "UTC" }).format(
-                  new Date(today + "T12:00:00Z"),
-                )}
-              </p>
-            </div>
-            {personal && personal !== inbox && (
-              <Dropdown>
-                <Button ref={listMenu} variant="tertiary" isIconOnly aria-label="清单操作">
-                  ···
+        {showBin ? (
+          <TaskBin items={bin} planner={data} query={query} act={act} />
+        ) : (
+          <div className="list-scroll" hidden={!!selectedTask}>
+            {due.length > 0 && (
+              <section className="reminders">
+                <Button
+                  variant="ghost"
+                  onPress={() => setRemindersOpen(!remindersOpen)}
+                  aria-expanded={remindersOpen}
+                >
+                  到点提醒 · {due.length} {remindersOpen ? "▾" : "▸"}
                 </Button>
-                <Dropdown.Popover>
-                  <Dropdown.Menu aria-label="清单操作">
-                    <Dropdown.Item
-                      id="rename"
-                      onAction={() => {
-                        setListEdit(personal);
-                        setListError("");
-                        setListName(label);
-                        setPane("nav");
-                      }}
-                    >
-                      重命名清单
-                    </Dropdown.Item>
-                    <Dropdown.Item
-                      id="delete"
-                      variant="danger"
-                      onAction={() => setDeleteList(true)}
-                    >
-                      删除清单
-                    </Dropdown.Item>
-                  </Dropdown.Menu>
-                </Dropdown.Popover>
-              </Dropdown>
+                {remindersOpen &&
+                  due.map((t) => (
+                    <div key={t.id}>
+                      <span>
+                        {t.title}
+                        <small>{pendingReminder(t)?.replace("T", " ")}</small>
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onPress={() =>
+                          void act("planner/tasks/" + t.id, "PATCH", { changes: { done: true } })
+                        }
+                      >
+                        完成
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="tertiary"
+                        onPress={() =>
+                          void act("planner/reminders/" + t.id, "POST", {
+                            at: pendingReminder(t),
+                            action: "snooze",
+                          })
+                        }
+                      >
+                        稍后 10 分钟
+                      </Button>
+                    </div>
+                  ))}
+              </section>
+            )}
+            <div className="view-head">
+              <div>
+                <h1>{label}</h1>
+                <p>
+                  {new Intl.DateTimeFormat("zh-CN", { dateStyle: "full", timeZone: "UTC" }).format(
+                    new Date(today + "T12:00:00Z"),
+                  )}
+                </p>
+              </div>
+              {personal && personal !== inbox && (
+                <Dropdown>
+                  <Button ref={listMenu} variant="tertiary" isIconOnly aria-label="清单操作">
+                    ···
+                  </Button>
+                  <Dropdown.Popover>
+                    <Dropdown.Menu aria-label="清单操作">
+                      <Dropdown.Item
+                        id="rename"
+                        onAction={() => {
+                          setListEdit(personal);
+                          setListError("");
+                          setListName(label);
+                          setPane("nav");
+                        }}
+                      >
+                        重命名清单
+                      </Dropdown.Item>
+                      <Dropdown.Item
+                        id="delete"
+                        variant="danger"
+                        onAction={() => setDeleteList(true)}
+                      >
+                        删除清单
+                      </Dropdown.Item>
+                    </Dropdown.Menu>
+                  </Dropdown.Popover>
+                </Dropdown>
+              )}
+            </div>
+            <form className="capture" onSubmit={create}>
+              <Button
+                type="submit"
+                isIconOnly
+                isDisabled={saving || !draft.trim()}
+                aria-label="添加任务"
+              >
+                ＋
+              </Button>
+              <Input
+                aria-label="快速添加任务"
+                ref={capture}
+                maxLength={200}
+                placeholder="添加任务…"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                readOnly={saving}
+                onKeyDown={(e) => {
+                  if (
+                    e.key === "Enter" &&
+                    (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                  )
+                    e.preventDefault();
+                }}
+              />
+            </form>
+            {captureError && <p role="alert">{captureError}</p>}
+            {ready ? (
+              <TaskList
+                items={items}
+                data={data}
+                view={view}
+                today={today}
+                open={open}
+                requestDelete={setDeleteTaskId}
+                act={act}
+              />
+            ) : (
+              <p role="status">正在读取清单…</p>
             )}
           </div>
-          <form className="capture" onSubmit={create}>
-            <Button
-              type="submit"
-              isIconOnly
-              isDisabled={saving || !draft.trim()}
-              aria-label="添加任务"
-            >
-              ＋
-            </Button>
-            <Input
-              aria-label="快速添加任务"
-              ref={capture}
-              maxLength={200}
-              placeholder="添加任务…"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              readOnly={saving}
-              onKeyDown={(e) => {
-                if (
-                  e.key === "Enter" &&
-                  (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-                )
-                  e.preventDefault();
-              }}
-            />
-          </form>
-          {captureError && <p role="alert">{captureError}</p>}
-          {ready ? (
-            <TaskList
-              items={items}
-              data={data}
-              view={view}
-              today={today}
-              open={open}
-              requestDelete={setDeleteTaskId}
-              act={act}
-            />
-          ) : (
-            <p role="status">正在读取清单…</p>
-          )}
-        </div>
+        )}
         {selectedTask && (
           <TaskEditor
             key={selectedTask.id}
@@ -491,11 +521,12 @@ export default function App() {
           close={() => setDeleteTaskId(null)}
           title={`删除「${deleteTask.title}」？`}
           consequence={
-            deleteTask.repeat && !deleteTask.done
-              ? "删除后将停止生成后续任务，已完成的记录会保留。"
+            "移入回收站后可在 30 天内恢复。" +
+            (deleteTask.repeat && !deleteTask.done
+              ? "后续任务将暂停生成，已完成的记录会保留。"
               : data.tasks.some((t) => t.parentId === deleteTask.id)
                 ? "子任务将作为独立任务保留在原清单中。"
-                : "删除后无法撤销。"
+                : "")
           }
           action="删除任务"
           confirm={async () => {

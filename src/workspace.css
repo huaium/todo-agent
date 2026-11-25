@@ -236,6 +236,9 @@
 .task-row {
   min-height: 62px;
 }
+.bin-row-text {
+  overflow-wrap: anywhere;
+}
 .task-section li + li {
   border-top: 1px solid var(--separator);
 }

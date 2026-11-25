@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { localMinute, pendingReminder, type Planner } from "../shared/planner.ts";
+import { localMinute, pendingReminder, type BinItem, type Planner } from "../shared/planner.ts";
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch("/api/" + path, {
@@ -12,8 +12,9 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   if (!response.ok) throw new Error(data.error || "请求失败。");
   return data;
 }
-export function usePlanner() {
+export function usePlanner(showBin: boolean) {
   const [data, setData] = useState<Planner>({ tasks: [], lists: [], timeZone: null });
+  const [bin, setBin] = useState<BinItem[] | null>(null);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState("");
   const [now, setNow] = useState(new Date());
@@ -29,7 +30,9 @@ export function usePlanner() {
         next = await api<Planner>("planner/timezone", "POST", {
           timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
+      const deleted = showBin ? await api<BinItem[]>("planner/bin") : null;
       if (ticket === serial.current) {
+        setBin(deleted);
         setData(next);
         setReady(true);
         setNow(new Date());
@@ -37,7 +40,7 @@ export function usePlanner() {
     } catch (e) {
       if (ticket === serial.current) setError(e instanceof Error ? e.message : "无法读取任务。");
     }
-  }, []);
+  }, [showBin]);
   useEffect(() => {
     void refresh();
     const bus = new BroadcastChannel("xiaoming-planner");
@@ -111,7 +114,18 @@ export function usePlanner() {
         .catch((e) => setError(e instanceof Error ? e.message : "无法送达浏览器通知。"));
     }
   }, [clock, data, refresh]);
-  return { data, ready, error, setError, act, changed, refresh, today: clock.slice(0, 10), due };
+  return {
+    data,
+    bin,
+    ready,
+    error,
+    setError,
+    act,
+    changed,
+    refresh,
+    today: clock.slice(0, 10),
+    due,
+  };
 }
 export type Action = (
   path: string,
