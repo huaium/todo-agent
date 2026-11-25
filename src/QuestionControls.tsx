@@ -19,9 +19,6 @@ function DeadlineChoices({
       <Button variant="secondary" size="sm" onPress={() => open(question.today)}>
         今天 · {question.today}
       </Button>
-      <Button variant="secondary" size="sm" onPress={() => open(question.tomorrow)}>
-        明天 · {question.tomorrow}
-      </Button>
       <Button variant="tertiary" size="sm" onPress={() => open("")}>
         选日期和时间
       </Button>
