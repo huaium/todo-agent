@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { publishTaskRows } from "./task-row-motion.ts";
 import { localMinute, pendingReminder, type BinItem, type Planner } from "../shared/planner.ts";
 
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
@@ -22,25 +23,33 @@ export function usePlanner(showBin: boolean) {
   const channel = useRef<BroadcastChannel | null>(null);
   const opened = useRef(new Date());
   const alerts = useRef(new Map<string, { at: string; notification: Notification }>());
-  const refresh = useCallback(async () => {
-    const ticket = ++serial.current;
-    try {
-      let next = await api<Planner>("planner");
-      if (!next.timeZone)
-        next = await api<Planner>("planner/timezone", "POST", {
-          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        });
-      const deleted = showBin ? await api<BinItem[]>("planner/bin") : null;
-      if (ticket === serial.current) {
-        setBin(deleted);
-        setData(next);
-        setReady(true);
-        setNow(new Date());
+  const load = useCallback(
+    async (animateRows: boolean) => {
+      const ticket = ++serial.current;
+      try {
+        let next = await api<Planner>("planner");
+        if (!next.timeZone)
+          next = await api<Planner>("planner/timezone", "POST", {
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          });
+        const deleted = showBin ? await api<BinItem[]>("planner/bin") : null;
+        if (ticket === serial.current) {
+          const publish = () => {
+            setBin(deleted);
+            setData(next);
+            setReady(true);
+            setNow(new Date());
+          };
+          if (animateRows) publishTaskRows(next.tasks, publish);
+          else publish();
+        }
+      } catch (e) {
+        if (ticket === serial.current) setError(e instanceof Error ? e.message : "无法读取任务。");
       }
-    } catch (e) {
-      if (ticket === serial.current) setError(e instanceof Error ? e.message : "无法读取任务。");
-    }
-  }, [showBin]);
+    },
+    [showBin],
+  );
+  const refresh = useCallback(() => load(false), [load]);
   useEffect(() => {
     void refresh();
     const bus = new BroadcastChannel("xiaoming-planner");
@@ -56,15 +65,15 @@ export function usePlanner(showBin: boolean) {
       window.removeEventListener("focus", refresh);
     };
   }, [refresh]);
-  const changed = async () => {
+  const changed = async (animateRows = true) => {
     channel.current?.postMessage("changed");
-    await refresh();
+    await load(animateRows);
   };
   const act: Action = async (path, method, body, report = setError) => {
     try {
       setError("");
       await api(path, method, body);
-      await changed();
+      await changed(path !== "planner/tasks/order");
       return true;
     } catch (e) {
       report(e instanceof Error ? e.message : "无法保存更改。");

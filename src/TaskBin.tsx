@@ -58,7 +58,11 @@ export function TaskBin({ items, planner, query, act }: Props) {
           <ul>
             {matches.map((item) => (
               <li key={item.id}>
-                <div className="task-row">
+                <div
+                  className="task-row"
+                  data-task-id={item.id}
+                  data-row-action={selected?.id === item.id || restoring === item.id || undefined}
+                >
                   <div className="row-text bin-row-text">
                     <strong>{item.title}</strong>
                     <div className="metadata">

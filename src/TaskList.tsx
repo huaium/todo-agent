@@ -13,6 +13,7 @@ interface Props {
   today: string;
   open(id: string): void;
   requestDelete(id: string): void;
+  deleting: string | null;
   act: Action;
 }
 export function TaskList({
@@ -24,6 +25,7 @@ export function TaskList({
   today,
   open,
   requestDelete,
+  deleting,
   act,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -79,7 +81,12 @@ export function TaskList({
     ].filter(Boolean);
     return (
       <>
-        <div className={"task-row" + (task.done ? " completed" : "")}>
+        <div
+          className={"task-row" + (task.done ? " completed" : "")}
+          data-task-id={task.id}
+          data-parent-row={ancestors.size ? [...ancestors].join("/") : undefined}
+          data-row-action={deleting === task.id || undefined}
+        >
           {controls?.handle}
           <Checkbox
             className="circle-check"

@@ -252,6 +252,24 @@
 }
 .task-row {
   min-height: 62px;
+  border-radius: var(--radius);
+}
+.list-scroll {
+  position: relative;
+}
+.task-row-exit {
+  position: absolute;
+  pointer-events: none;
+  z-index: 1;
+  background: var(--surface);
+}
+.task-row:focus-within {
+  background-color: color-mix(in srgb, var(--default) 45%, transparent);
+}
+@media (hover: hover) {
+  .task-row:hover {
+    background-color: color-mix(in srgb, var(--default) 45%, transparent);
+  }
 }
 .sortable-row {
   position: relative;
@@ -448,6 +466,9 @@
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
+  .task-row {
+    transition: background-color 100ms ease-out;
+  }
   .filter-disclosure {
     transition:
       grid-template-rows var(--motion-pane) var(--motion-ease),

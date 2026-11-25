@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Button, Dropdown, Input } from "@heroui/react";
 import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
@@ -9,6 +9,7 @@ import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
+import { cancelTaskRowAnimations } from "./task-row-motion.ts";
 
 const views = [
   ["today", "今天", ""],
@@ -43,6 +44,17 @@ export default function App() {
   const [listFilter, setListFilter] = useState("");
   const [status, setStatus] = useState("");
   const [filters, setFilters] = useState(false);
+  useLayoutEffect(cancelTaskRowAnimations, [
+    view,
+    pane,
+    selected,
+    query,
+    tag,
+    priority,
+    listFilter,
+    status,
+    manualDates,
+  ]);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [captureError, setCaptureError] = useState("");
@@ -539,6 +551,7 @@ export default function App() {
                 today={today}
                 open={open}
                 requestDelete={setDeleteTaskId}
+                deleting={deleteTaskId}
                 act={act}
               />
             ) : (
@@ -575,7 +588,8 @@ export default function App() {
           action="删除任务"
           confirm={async () => {
             if (!(await act("tasks/" + deleteTask.id, "DELETE"))) return false;
-            back();
+            setDeleteTaskId(null);
+            if (selected === deleteTask.id) back();
             return true;
           }}
         />

@@ -30,6 +30,7 @@ function SortableRow({
   cancel,
   busy,
   active,
+  order,
 }: {
   task: PlannerTask;
   help: string;
@@ -41,6 +42,7 @@ function SortableRow({
   cancel(): void;
   busy: boolean;
   active: boolean;
+  order: string;
 }) {
   const controls = useDragControls();
   const grabbed = useRef(false);
@@ -48,6 +50,7 @@ function SortableRow({
     <Reorder.Item
       value={task.id}
       layout="position"
+      layoutDependency={order}
       className="sortable-row"
       data-moving={active || undefined}
       aria-label={task.title}
@@ -156,6 +159,7 @@ export function ReorderTasks({ rows, manual, className, render, save }: Props) {
       </ul>
     );
   const values = draft && sameOrder(ids, draft.previous) ? draft.ordered : ids;
+  const order = draft?.ordered.join("/") ?? "";
   return (
     <MotionConfig reducedMotion="user">
       <span id={help} className="sr-only">
@@ -167,6 +171,7 @@ export function ReorderTasks({ rows, manual, className, render, save }: Props) {
             key={id}
             task={byId.get(id)!}
             help={help}
+            order={order}
             render={render}
             moveUp={!draft && i > 0 ? () => step(i, -1) : undefined}
             moveDown={!draft && i < values.length - 1 ? () => step(i, 1) : undefined}
