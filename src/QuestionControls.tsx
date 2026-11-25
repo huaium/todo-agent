@@ -1,22 +1,21 @@
 import { useState } from "react";
-import { AnimatePresence, useIsPresent } from "motion/react";
-import * as m from "motion/react-m";
 import type { ChatQuestion, QuestionAnswer } from "../shared/chat.ts";
 import { Button } from "@heroui/react";
 import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
 
 function DeadlineChoices({
   question,
+  editing,
   open,
   dismiss,
 }: {
   question: Extract<ChatQuestion, { kind: "deadline" }>;
+  editing: boolean;
   open(date: string): void;
   dismiss(): void;
 }) {
-  const present = useIsPresent();
   return (
-    <m.section className="deadline-choices" inert={!present} exit={{ opacity: 0 }}>
+    <section className="deadline-choices" inert={editing}>
       <Button variant="secondary" size="sm" onPress={() => open(question.today)}>
         今天 · {question.today}
       </Button>
@@ -29,7 +28,7 @@ function DeadlineChoices({
       <Button variant="ghost" size="sm" onPress={dismiss}>
         暂不设置
       </Button>
-    </m.section>
+    </section>
   );
 }
 
@@ -79,12 +78,13 @@ export function QuestionControls({
           </Button>
         </>
       ) : (
-        <AnimatePresence initial={false}>
-          {editing ? (
-            <m.form
-              key="editor"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+        <>
+          {!initialDate && (
+            <DeadlineChoices question={q} editing={editing} open={open} dismiss={dismiss} />
+          )}
+          {editing && (
+            <form
+              className={initialDate ? undefined : "deadline-editor-enter"}
               onSubmit={(e) => {
                 e.preventDefault();
                 onAnswer({ kind: "deadline", date, ...(time && { time }) });
@@ -124,11 +124,9 @@ export function QuestionControls({
                   {initialDate ? "仅设日期" : "取消"}
                 </Button>
               </footer>
-            </m.form>
-          ) : (
-            <DeadlineChoices key="choices" question={q} open={open} dismiss={dismiss} />
+            </form>
           )}
-        </AnimatePresence>
+        </>
       )}
     </fieldset>
   );

@@ -1,12 +1,4 @@
-import { useEffect, useRef } from "react";
-import {
-  AnimatePresence,
-  domAnimation,
-  LazyMotion,
-  MotionConfig,
-  useReducedMotion,
-} from "motion/react";
-import * as m from "motion/react-m";
+import { useEffect, useRef, useState } from "react";
 import type { ChatMessage, QuestionAnswer } from "../shared/chat.ts";
 import { QuestionControls } from "./QuestionControls.tsx";
 import { Button, Spinner } from "@heroui/react";
@@ -30,7 +22,8 @@ export function ChatHistory({
 }: ChatHistoryProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
-  const reduceMotion = useReducedMotion();
+  const [restoredCount, setRestoredCount] = useState(messages.length);
+  if (messages.length < restoredCount) setRestoredCount(messages.length);
   useEffect(() => {
     const el = viewport.current;
     if (el && (following.current || messages.at(-1)?.role === "user"))
@@ -60,36 +53,26 @@ export function ChatHistory({
         </section>
       ) : (
         <div className="thread" role="log" aria-label="对话记录" aria-live="polite">
-          <LazyMotion features={domAnimation} strict>
-            <MotionConfig
-              reducedMotion="user"
-              transition={{ duration: reduceMotion ? 0 : 0.15, ease: "easeOut" }}
+          {messages.map((message, index) => (
+            <div
+              key={index}
+              className={`message ${message.role}`}
+              data-new={index >= restoredCount || undefined}
             >
-              <AnimatePresence initial={false}>
-                {messages.map((message, index) => (
-                  <m.div
-                    key={index}
-                    className={`message ${message.role}`}
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                  >
-                    <small>{message.role === "user" ? "你" : "小明智能体"}</small>
-                    <div>{message.content}</div>
-                    {index === messages.length - 1 &&
-                      message.role === "assistant" &&
-                      message.question && (
-                        <QuestionControls
-                          key={message.question.id}
-                          question={message.question}
-                          disabled={disabled}
-                          onAnswer={(answer) => onAnswer(message.question!.id, answer)}
-                        />
-                      )}
-                  </m.div>
-                ))}
-              </AnimatePresence>
-            </MotionConfig>
-          </LazyMotion>
+              <small>{message.role === "user" ? "你" : "小明智能体"}</small>
+              <div>{message.content}</div>
+              {index === messages.length - 1 &&
+                message.role === "assistant" &&
+                message.question && (
+                  <QuestionControls
+                    key={message.question.id}
+                    question={message.question}
+                    disabled={disabled}
+                    onAnswer={(answer) => onAnswer(message.question!.id, answer)}
+                  />
+                )}
+            </div>
+          ))}
           {pending && (
             <p className="reply-pending" role="status">
               <Spinner size="sm" aria-hidden="true" />
