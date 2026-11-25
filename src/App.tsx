@@ -11,7 +11,7 @@ import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
 import { cancelTaskRowAnimations, publishTaskRows, revealTaskResults } from "./task-row-motion.ts";
 import { SortMenu } from "./SortMenu.tsx";
-import { sortTasks, useViewSort, type SortChoice } from "./task-sort.ts";
+import { sortTasks, taskMethods, useViewSort, type SortChoice } from "./task-sort.ts";
 
 const views = [
   ["today", "今天", ""],
@@ -29,7 +29,11 @@ export default function App() {
   const showBin = view === "bin";
   const { data, bin, ready, refreshRevision, error, setError, act, changed, refresh, today, due } =
     usePlanner(showBin);
-  const [sort, selectSort] = useViewSort(activeView);
+  const [sort, selectSort] = useViewSort(
+    activeView,
+    taskMethods,
+    activeView === "today" || activeView === "upcoming" ? "due" : "manual",
+  );
   const orderedTasks = useMemo(() => sortTasks(data.tasks, sort), [data.tasks, sort]);
   function changeSort(choice: SortChoice) {
     publishTaskRows(data.tasks, () => selectSort(choice));
@@ -482,7 +486,7 @@ export default function App() {
                   </Dropdown.Popover>
                 </Dropdown>
               )}
-              <SortMenu choice={sort} onChange={changeSort} />
+              <SortMenu choice={sort} methods={taskMethods} onChange={changeSort} />
             </div>
             <form className="capture" onSubmit={create}>
               <Button

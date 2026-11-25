@@ -4,6 +4,9 @@ import type { BinItem, Planner } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ConfirmAction } from "./PlannerControls.tsx";
+import { SortMenu } from "./SortMenu.tsx";
+import { binMethods, sortBin, useViewSort } from "./task-sort.ts";
+import { publishTaskRows } from "./task-row-motion.ts";
 
 interface Props {
   items: BinItem[] | null;
@@ -13,6 +16,7 @@ interface Props {
 }
 
 export function TaskBin({ items, planner, query, act }: Props) {
+  const [sort, selectSort] = useViewSort("bin", binMethods, "deleted");
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<TaskNotice>();
   const [selected, setSelected] = useState<BinItem | null>(null);
@@ -46,6 +50,11 @@ export function TaskBin({ items, planner, query, act }: Props) {
           <h1>回收站</h1>
           <p>任务自删除起保留 30 天，到期后自动清除。</p>
         </div>
+        <SortMenu
+          methods={binMethods}
+          choice={sort}
+          onChange={(choice) => publishTaskRows(planner.tasks, () => selectSort(choice))}
+        />
       </div>
       {!matches ? (
         <p role="status">正在读取回收站…</p>
@@ -56,7 +65,7 @@ export function TaskBin({ items, planner, query, act }: Props) {
       ) : (
         <section className="task-section" aria-label="已删除的任务">
           <ul>
-            {matches.map((item) => (
+            {sortBin(matches, sort).map((item) => (
               <li key={item.id}>
                 <div
                   className="task-row"

@@ -1,12 +1,14 @@
 import { Button, Dropdown, Label, Separator } from "@heroui/react";
-import { directionLabels, sortLabels, taskMethods, type SortChoice } from "./task-sort.ts";
+import { directionLabels, sortLabels, type SortChoice, type SortMethod } from "./task-sort.ts";
 
-export function SortMenu({
+export function SortMenu<M extends SortMethod>({
   choice,
+  methods,
   onChange,
 }: {
-  choice: SortChoice;
-  onChange(choice: SortChoice): void;
+  choice: SortChoice<M>;
+  methods: readonly M[];
+  onChange(choice: SortChoice<M>): void;
 }) {
   const { method, reverse } = choice;
   return (
@@ -22,7 +24,7 @@ export function SortMenu({
             disallowEmptySelection
             selectedKeys={[method]}
           >
-            {taskMethods.map((key) => (
+            {methods.map((key) => (
               <Dropdown.Item
                 key={key}
                 id={key}
