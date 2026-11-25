@@ -1,6 +1,6 @@
 .planner-app {
   display: grid;
-  grid-template-columns: clamp(202px, 18vw, 256px) minmax(0, 1fr) clamp(290px, 26vw, 400px);
+  grid-template-columns: clamp(160px, 15vw, 220px) minmax(0, 9fr) minmax(0, 11fr);
   height: 100dvh;
   overflow: hidden;
   font-size: 0.9375rem;
@@ -162,6 +162,14 @@
   padding: 12px clamp(12px, 2vw, 28px);
   border-bottom: 1px solid var(--separator);
 }
+.planner-main {
+  container-type: inline-size;
+}
+@container (max-width: 560px) {
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
 .filters > *,
 .fields > *,
 .combo-box__input-group,
@@ -311,10 +319,11 @@
   color: var(--danger-soft-foreground);
 }
 .chat-pane {
+  --chat-inset: max(clamp(14px, 2vw, 32px), calc((100% - 46rem) / 2));
   border-inline-start: 1px solid var(--separator);
 }
 .pane-head {
-  padding-inline: 14px;
+  padding-inline: var(--chat-inset);
 }
 .pane-head strong {
   white-space: nowrap;
@@ -323,7 +332,7 @@
   margin-inline-start: auto;
 }
 .welcome {
-  padding: 32px 16px;
+  padding: 32px var(--chat-inset);
 }
 .welcome h2 {
   margin-bottom: 16px;
@@ -340,7 +349,7 @@
 .thread {
   display: grid;
   gap: 18px;
-  padding: 18px 14px;
+  padding: 18px var(--chat-inset);
 }
 .message {
   min-width: 0;
@@ -430,7 +439,7 @@
 .composer {
   position: relative;
   flex: none;
-  margin: 10px;
+  margin: 10px var(--chat-inset);
 }
 .composer textarea {
   display: block;
@@ -444,7 +453,7 @@
   inset: auto 8px 8px auto;
 }
 .preview {
-  margin: 8px;
+  margin: 8px var(--chat-inset);
   background: var(--background);
 }
 .preview p {
@@ -496,7 +505,7 @@
     width: 26px;
   }
   .planner-app {
-    grid-template-columns: 150px minmax(0, 1fr) 245px;
+    grid-template-columns: 150px minmax(290px, 9fr) minmax(0, 11fr);
   }
   .rail {
     padding-inline: 8px;
@@ -504,9 +513,6 @@
   .list-scroll,
   .editor {
     padding: 16px 12px;
-  }
-  .filters {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .task-row {
     gap: 3px;
