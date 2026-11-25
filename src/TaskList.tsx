@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button, Checkbox, Dropdown, Label } from "@heroui/react";
 import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
+import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 interface Props {
   items: PlannerTask[];
   data: Planner;
@@ -13,12 +14,7 @@ interface Props {
 }
 export function TaskList({ items, data, view, today, open, requestDelete, act }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [confirmation, setConfirmation] = useState<{ text: string }>();
-  useEffect(() => {
-    if (!confirmation) return;
-    const timer = window.setTimeout(() => setConfirmation(undefined), 2600);
-    return () => window.clearTimeout(timer);
-  }, [confirmation]);
+  const [confirmation, setConfirmation] = useState<TaskNotice>();
   const groups = new Map<string, PlannerTask[]>();
   for (const task of items) {
     const group =
@@ -118,7 +114,7 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
             aria-pressed={!!task.starred}
             onPress={() => void patch(task.id, { starred: !task.starred })}
           >
-            {task.starred ? "★" : "☆"}
+            <span aria-hidden="true">{task.starred ? "★" : "☆"}</span>
           </Button>
           <Dropdown>
             <Button variant="ghost" isIconOnly size="sm" aria-label={"操作" + task.title}>
@@ -173,9 +169,7 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
           </section>
         );
       })}
-      <div className="completion-status" role="status">
-        {confirmation && <span>{confirmation.text}</span>}
-      </div>
+      <TaskFeedback notice={confirmation} />
     </>
   );
 }

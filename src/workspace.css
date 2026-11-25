@@ -314,10 +314,17 @@
   pointer-events: none;
 }
 .completion-status span {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
   padding: 8px 16px;
   border-radius: 16px;
   background: var(--success-soft);
   color: var(--success-soft-foreground);
+}
+.completion-status span[data-dismissed] {
+  display: none;
+  opacity: 0;
 }
 .reminders {
   margin-bottom: 20px;
@@ -415,8 +422,20 @@
   }
   .view-head > div,
   .editor,
-  .nested {
+  .nested,
+  .completion-status span {
     animation: planner-reveal var(--motion-pane) var(--motion-ease);
+  }
+  .completion-status span {
+    transition:
+      opacity var(--motion-quick) ease-in,
+      display var(--motion-quick) allow-discrete;
+  }
+  .star > span {
+    transition: transform var(--motion-quick) var(--motion-ease);
+  }
+  .star[aria-pressed="true"] > span {
+    transform: scale(1.12);
   }
   .editor {
     --enter-x: 8px;

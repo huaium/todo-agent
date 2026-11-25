@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Button } from "@heroui/react";
 import type { BinItem, Planner } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
+import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 
 interface Props {
   items: BinItem[] | null;
@@ -12,7 +13,7 @@ interface Props {
 
 export function TaskBin({ items, planner, query, act }: Props) {
   const [restoring, setRestoring] = useState<string | null>(null);
-  const [notice, setNotice] = useState("");
+  const [notice, setNotice] = useState<TaskNotice>();
   const format = new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -25,13 +26,12 @@ export function TaskBin({ items, planner, query, act }: Props) {
   );
   async function restore(item: BinItem) {
     setRestoring(item.id);
-    setNotice("");
     if (
       await act("planner/bin/" + encodeURIComponent(item.id) + "/restore", "POST", {
         deletedAt: item.deletedAt,
       })
     )
-      setNotice("已恢复「" + item.title + "」。");
+      setNotice({ text: "已恢复「" + item.title + "」。" });
     setRestoring(null);
   }
   return (
@@ -80,7 +80,7 @@ export function TaskBin({ items, planner, query, act }: Props) {
           </ul>
         </section>
       )}
-      <p role="status">{notice}</p>
+      <TaskFeedback notice={notice} />
     </div>
   );
 }
