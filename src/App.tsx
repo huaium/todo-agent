@@ -9,7 +9,7 @@ import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
-import { cancelTaskRowAnimations } from "./task-row-motion.ts";
+import { cancelTaskRowAnimations, revealTaskResults } from "./task-row-motion.ts";
 
 const views = [
   ["today", "今天", ""],
@@ -32,7 +32,7 @@ function readManualDates() {
 export default function App() {
   const [view, setView] = useState("today");
   const showBin = view === "bin";
-  const { data, bin, ready, error, setError, act, changed, refresh, today, due } =
+  const { data, bin, ready, refreshRevision, error, setError, act, changed, refresh, today, due } =
     usePlanner(showBin);
   const [manualDates, setManualDates] = useState(readManualDates);
   const dateView = view === "today" || view === "upcoming";
@@ -44,7 +44,11 @@ export default function App() {
   const [listFilter, setListFilter] = useState("");
   const [status, setStatus] = useState("");
   const [filters, setFilters] = useState(false);
-  useLayoutEffect(cancelTaskRowAnimations, [
+  const resultsReady = showBin ? bin !== null : ready;
+  useLayoutEffect(() => {
+    cancelTaskRowAnimations();
+    if (resultsReady && !selected) return revealTaskResults();
+  }, [
     view,
     pane,
     selected,
@@ -54,6 +58,8 @@ export default function App() {
     listFilter,
     status,
     manualDates,
+    resultsReady,
+    refreshRevision,
   ]);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);

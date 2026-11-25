@@ -17,6 +17,8 @@ export function usePlanner(showBin: boolean) {
   const [data, setData] = useState<Planner>({ tasks: [], lists: [], timeZone: null });
   const [bin, setBin] = useState<BinItem[] | null>(null);
   const [ready, setReady] = useState(false);
+  const [refreshRevision, setRefreshRevision] = useState(0);
+  const lastResults = useRef<{ showBin: boolean; signature: string } | null>(null);
   const [error, setError] = useState("");
   const [now, setNow] = useState(new Date());
   const serial = useRef(0);
@@ -24,7 +26,7 @@ export function usePlanner(showBin: boolean) {
   const opened = useRef(new Date());
   const alerts = useRef(new Map<string, { at: string; notification: Notification }>());
   const load = useCallback(
-    async (animateRows: boolean) => {
+    async (mode: "refresh" | "saved" | "reorder") => {
       const ticket = ++serial.current;
       try {
         let next = await api<Planner>("planner");
@@ -34,13 +36,23 @@ export function usePlanner(showBin: boolean) {
           });
         const deleted = showBin ? await api<BinItem[]>("planner/bin") : null;
         if (ticket === serial.current) {
+          const signature = JSON.stringify([
+            next.lists,
+            showBin ? deleted : next.tasks,
+            next.timeZone,
+          ]);
+          const previous = lastResults.current;
+          const refreshChanged =
+            mode === "refresh" && previous?.showBin === showBin && previous.signature !== signature;
+          lastResults.current = { showBin, signature };
           const publish = () => {
+            if (refreshChanged) setRefreshRevision((value) => value + 1);
             setBin(deleted);
             setData(next);
             setReady(true);
             setNow(new Date());
           };
-          if (animateRows) publishTaskRows(next.tasks, publish);
+          if (mode === "saved") publishTaskRows(next.tasks, publish);
           else publish();
         }
       } catch (e) {
@@ -49,7 +61,7 @@ export function usePlanner(showBin: boolean) {
     },
     [showBin],
   );
-  const refresh = useCallback(() => load(false), [load]);
+  const refresh = useCallback(() => load("refresh"), [load]);
   useEffect(() => {
     void refresh();
     const bus = new BroadcastChannel("xiaoming-planner");
@@ -67,7 +79,7 @@ export function usePlanner(showBin: boolean) {
   }, [refresh]);
   const changed = async (animateRows = true) => {
     channel.current?.postMessage("changed");
-    await load(animateRows);
+    await load(animateRows ? "saved" : "reorder");
   };
   const act: Action = async (path, method, body, report = setError) => {
     try {
@@ -127,6 +139,7 @@ export function usePlanner(showBin: boolean) {
     data,
     bin,
     ready,
+    refreshRevision,
     error,
     setError,
     act,

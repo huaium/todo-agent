@@ -5,6 +5,36 @@ const rowSelector = ".task-row[data-task-id]";
 const timing = { duration: 160, easing: "cubic-bezier(.2,.7,.3,1)" };
 const animationId = "saved-task-row";
 
+function visibleList() {
+  return document.querySelector<HTMLElement>(".list-scroll:not([hidden])");
+}
+
+export function revealTaskResults() {
+  const list = visibleList();
+  if (
+    !list?.clientHeight ||
+    list.querySelector("[data-moving]") ||
+    matchMedia("(prefers-reduced-motion: reduce)").matches
+  )
+    return;
+  const bounds = list.getBoundingClientRect();
+  const effects: Animation[] = [];
+  for (const section of list.querySelectorAll(".task-section, .empty-list")) {
+    const box = section.getBoundingClientRect();
+    if (box.bottom <= bounds.top || box.top >= bounds.bottom) continue;
+    effects.push(
+      section.animate(
+        [
+          { opacity: 0.72, translate: "0 3px" },
+          { opacity: 1, translate: "0 0" },
+        ],
+        { ...timing, id: "task-results" },
+      ),
+    );
+  }
+  return () => effects.forEach((effect) => effect.cancel());
+}
+
 export function cancelTaskRowAnimations() {
   for (const animation of document.getAnimations()) {
     if (animation.id === animationId) animation.cancel();
@@ -62,7 +92,7 @@ function fadeOut(
 }
 
 export function publishTaskRows(tasks: PlannerTask[], publish: () => void) {
-  const list = document.querySelector<HTMLElement>(".list-scroll:not([hidden])");
+  const list = visibleList();
   if (!list || !list.clientHeight || list.querySelector("[data-moving]")) {
     publish();
     return;
