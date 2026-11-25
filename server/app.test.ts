@@ -8,6 +8,7 @@ import { test, type TestContext } from "node:test";
 import type { ChatMessage } from "../shared/chat.ts";
 import { createApp } from "./app.ts";
 import { createJsonTaskStore } from "./task-store.ts";
+import { taskTools } from "./task-tools.ts";
 
 async function startTestApp(t: TestContext) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
@@ -39,7 +40,7 @@ async function startTestApp(t: TestContext) {
     };
   }
 
-  return { request, conversations, filename };
+  return { request, conversations, filename, port };
 }
 
 test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
@@ -70,6 +71,25 @@ test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
   assert.equal((await request("PATCH", "/api/tasks/missing", {})).status, 400);
   assert.equal((await request("PATCH", "/api/tasks/missing", { done: true })).status, 404);
   assert.equal((await request("DELETE", "/api/tasks/missing")).status, 404);
+});
+
+test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单", async (t) => {
+  const { request, port, filename } = await startTestApp(t);
+  const tools = taskTools(port);
+  const execute = (name: string, args: string) =>
+    tools.find((tool) => tool.definition.function.name === name)!.execute(args);
+  await execute("createTask", JSON.stringify({ title: "买牛奶" }));
+  const [task] = (await request("GET", "/api/tasks")).body;
+  assert.equal(task.title, "买牛奶");
+  assert.ok("error" in Object(await execute("updateTask", "{")));
+  assert.ok(
+    "error" in Object(await execute("updateTask", JSON.stringify({ id: task.id, changes: {} }))),
+  );
+  assert.deepEqual(await execute("listTasks", "{}"), [task]);
+  await execute("updateTask", JSON.stringify({ id: task.id, changes: { done: true } }));
+  assert.equal(createJsonTaskStore(filename).list()[0].done, true);
+  await execute("deleteTask", JSON.stringify({ id: task.id }));
+  assert.deepEqual(await execute("listTasks", "{}"), []);
 });
 
 test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {

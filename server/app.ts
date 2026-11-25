@@ -3,9 +3,11 @@ import express, { type ErrorRequestHandler } from "express";
 import { chatRequestSchema, type ChatMessage } from "../shared/chat.ts";
 import type { TaskStore } from "./task-store.ts";
 import { taskRouter } from "./tasks.ts";
+import { reply as agentReply } from "./agent.ts";
+import { taskTools } from "./task-tools.ts";
 
 interface AppDependencies {
-  reply(messages: ChatMessage[]): Promise<string>;
+  reply?(messages: ChatMessage[]): Promise<string>;
   tasks: TaskStore;
 }
 
@@ -18,7 +20,9 @@ export function createApp({ reply, tasks }: AppDependencies) {
     if (!input.success) {
       return res.status(400).json({ error: "请提供对话记录，并以用户消息结尾。" });
     }
-    const answer = await reply(input.data.messages);
+    const answer = reply
+      ? await reply(input.data.messages)
+      : await agentReply(input.data.messages, taskTools(req.socket.localPort!));
     res.json({ reply: answer });
   });
 
