@@ -85,5 +85,25 @@ export function taskTools(port: number, store: TaskStore): TaskTool[] {
       z.strictObject({ id, changes: detailsSchema }),
       async ({ id, changes }) => setDetails(store, id, changes),
     ),
+    taskTool(
+      "showTasksDue",
+      "直接向用户展示指定日期的到期清单。用于单独的到期查询。默认只看未完成，done 为 null 时包括全部状态。",
+      z.strictObject({ date: z.iso.date(), done: z.boolean().nullable().optional() }),
+      async ({ date, done = false }) => {
+        const tasks: Task[] = await request("GET");
+        const rows = tasks.filter(
+          (task) => task.dueDate === date && (done === null || task.done === done),
+        );
+        const scope = done === null ? "" : done ? "已完成" : "未完成";
+        const heading = `${date} 到期的${scope}任务`;
+        const reply = rows.length
+          ? [
+              heading + "：",
+              ...rows.map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`),
+            ].join("\n")
+          : `${heading}：无。`;
+        return { reply };
+      },
+    ),
   ];
 }

@@ -127,6 +127,10 @@ test("任务详情持久化，筛选到期子任务并保留已删除父任务�
     await run("listTasks", { dueDate: details.dueDate, done: false, parentId: parent.id }),
     [{ ...child, ...details }],
   );
+  await run("setTaskDetails", { id: parent.id, changes: { dueDate: "2028-02-28" } });
+  assert.deepEqual(await run("showTasksDue", { date: "2028-02-28" }), {
+    reply: "2028-02-28 到期的未完成任务：\n· 准备发布（待办）",
+  });
   assert.equal((await request("PATCH", "/api/tasks/" + child.id, { effort: "大" })).status, 400);
   await request("DELETE", "/api/tasks/" + parent.id);
   const [reopened] = createJsonTaskStore(filename).list();
