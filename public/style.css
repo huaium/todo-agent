@@ -621,14 +621,23 @@ textarea {
 .message.user {
   justify-self: end;
 }
-.chat-question {
+.chat-question,
+.deadline-choices {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+}
+.chat-question {
+  position: relative;
   min-width: 0;
   margin: 8px 0 0;
   padding: 0;
   border: 0;
+}
+.deadline-choices[inert] {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
 }
 .chat-question button {
   min-height: 34px;
@@ -896,7 +905,6 @@ textarea {
   .editor,
   .filters,
   .row-menu[open] > div,
-  .message,
   .preview,
   .completion-status span {
     animation: appear 180ms cubic-bezier(0.2, 0.7, 0.2, 1);

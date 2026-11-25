@@ -1,5 +1,27 @@
 import { useState } from "react";
+import { AnimatePresence, useIsPresent } from "motion/react";
+import * as m from "motion/react-m";
 import type { ChatQuestion, QuestionAnswer } from "../shared/chat.ts";
+
+function DeadlineChoices({
+  question,
+  open,
+  dismiss,
+}: {
+  question: Extract<ChatQuestion, { kind: "deadline" }>;
+  open(date: string): void;
+  dismiss(): void;
+}) {
+  const present = useIsPresent();
+  return (
+    <m.section className="deadline-choices" inert={!present} exit={{ opacity: 0 }}>
+      <button onClick={() => open(question.today)}>今天 · {question.today}</button>
+      <button onClick={() => open(question.tomorrow)}>明天 · {question.tomorrow}</button>
+      <button onClick={() => open("")}>选日期和时间</button>
+      <button onClick={dismiss}>暂不设置</button>
+    </m.section>
+  );
+}
 
 export function QuestionControls({
   question: q,
@@ -42,48 +64,56 @@ export function QuestionControls({
           ))}
           <button onClick={dismiss}>取消</button>
         </>
-      ) : editing ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            onAnswer({ kind: "deadline", date, ...(time && { time }) });
-          }}
-        >
-          {initialDate ? (
-            <span>
-              {initialDate} · {q.timeZone}
-            </span>
-          ) : (
-            <label>
-              截止日期
-              <input type="date" required value={date} onChange={(e) => setDate(e.target.value)} />
-            </label>
-          )}
-          <label>
-            截止时间{!initialDate && "（可选）"}
-            <input
-              type="time"
-              required={!!initialDate}
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-            />
-          </label>
-          <footer>
-            <button className="save-deadline" disabled={!date || (!!initialDate && !time)}>
-              {initialDate ? "保存时间" : "保存"}
-            </button>
-            <button type="button" onClick={dismiss}>
-              {initialDate ? "仅设日期" : "取消"}
-            </button>
-          </footer>
-        </form>
       ) : (
-        <>
-          <button onClick={() => open(q.today)}>今天 · {q.today}</button>
-          <button onClick={() => open(q.tomorrow)}>明天 · {q.tomorrow}</button>
-          <button onClick={() => open("")}>选日期和时间</button>
-          <button onClick={dismiss}>暂不设置</button>
-        </>
+        <AnimatePresence initial={false}>
+          {editing ? (
+            <m.form
+              key="editor"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                onAnswer({ kind: "deadline", date, ...(time && { time }) });
+              }}
+            >
+              {initialDate ? (
+                <span>
+                  {initialDate} · {q.timeZone}
+                </span>
+              ) : (
+                <label>
+                  截止日期
+                  <input
+                    autoFocus
+                    type="date"
+                    required
+                    value={date}
+                    onChange={(e) => setDate(e.target.value)}
+                  />
+                </label>
+              )}
+              <label>
+                截止时间{!initialDate && "（可选）"}
+                <input
+                  type="time"
+                  required={!!initialDate}
+                  value={time}
+                  onChange={(e) => setTime(e.target.value)}
+                />
+              </label>
+              <footer>
+                <button className="save-deadline" disabled={!date || (!!initialDate && !time)}>
+                  {initialDate ? "保存时间" : "保存"}
+                </button>
+                <button type="button" onClick={dismiss}>
+                  {initialDate ? "仅设日期" : "取消"}
+                </button>
+              </footer>
+            </m.form>
+          ) : (
+            <DeadlineChoices key="choices" question={q} open={open} dismiss={dismiss} />
+          )}
+        </AnimatePresence>
       )}
     </fieldset>
   );
