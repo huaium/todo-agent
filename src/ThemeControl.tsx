@@ -49,7 +49,6 @@ export function ThemeControl() {
     <Button
       variant="secondary"
       size="sm"
-      className="theme-button"
       onPress={cycleTheme}
       aria-label={`主题 · ${label}，切换到${themes[next].label}`}
     >

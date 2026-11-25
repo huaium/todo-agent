@@ -110,15 +110,16 @@
   padding: 8px 0;
 }
 .rail-foot {
+  display: grid;
+  grid-auto-rows: 1fr;
+  justify-items: start;
+  row-gap: calc(var(--spacing) * 2);
   margin-top: auto;
   padding: 24px 5px 0;
 }
-.rail-foot .theme-button {
-  display: flex;
-  width: fit-content;
-  margin-bottom: 12px;
-}
 .rail-foot small {
+  display: flex;
+  align-items: center;
   padding-inline-start: calc(var(--spacing) * 3);
 }
 .rail-foot small,
@@ -131,7 +132,6 @@
 .empty-list {
   color: var(--muted);
 }
-.rail-foot small,
 .reminders small {
   display: block;
   margin-top: 4px;
