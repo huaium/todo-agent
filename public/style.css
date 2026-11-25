@@ -642,7 +642,7 @@ textarea {
   border: 0;
   width: 100%;
   height: 78px;
-  padding: 12px 46px 10px 12px;
+  padding: 12px 54px 10px 12px;
   resize: none;
   border-radius: 12px;
 }
@@ -650,12 +650,19 @@ textarea {
   position: absolute;
   bottom: 9px;
   right: 9px;
-  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border-radius: 50%;
   background: var(--blue);
   color: white;
-  font-size: 21px;
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
+}
+.composer button:disabled {
+  opacity: 1;
+  background: var(--hover);
+  color: var(--muted);
 }
 .composer button:hover:not(:disabled),
 .primary:hover:not(:disabled) {

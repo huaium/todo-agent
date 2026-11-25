@@ -114,7 +114,20 @@ export function ChatPanel({
           }}
         />
         <button disabled={busy || !draft.trim()} aria-label="发送消息">
-          ↑
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="m21 3-6.3 17.5-3.8-7.4-7.4-3.8L21 3Z M10.9 13.1 21 3" />
+          </svg>
         </button>
       </form>
     </aside>
