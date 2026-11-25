@@ -1,0 +1,496 @@
+.planner-app {
+  display: grid;
+  grid-template-columns: clamp(202px, 18vw, 256px) minmax(0, 1fr) clamp(290px, 26vw, 400px);
+  height: 100dvh;
+  overflow: hidden;
+  font-size: 0.9375rem;
+}
+.rail,
+.planner-main,
+.chat-pane {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.rail,
+.chat-pane {
+  background: var(--surface);
+}
+.rail {
+  overflow: auto;
+  border-inline-end: 1px solid var(--separator);
+  padding: 24px 14px 16px;
+}
+.brand,
+.rail-heading,
+.toolbar,
+.pane-head,
+.view-head,
+.section-top,
+.capture,
+.task-row,
+.editor-actions,
+.reminders > div,
+.chat-question footer,
+.child-editor form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand {
+  padding: 0 8px 26px;
+  gap: 11px;
+}
+.brand img,
+.pane-head img,
+.welcome img {
+  width: 32px;
+  border-radius: 10px;
+}
+.brand b {
+  font-size: 1.4rem;
+  letter-spacing: -0.055em;
+}
+.nav-views {
+  display: grid;
+  gap: 4px;
+}
+.nav-views .button {
+  width: 100%;
+  justify-content: flex-start;
+  height: auto;
+  min-height: 40px;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.nav-views small,
+.rail-heading .button,
+.brand .mobile-only {
+  margin-inline-start: auto;
+}
+.nav-views i {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  flex: none;
+  font-style: normal;
+}
+.calendar-day {
+  font-size: 10px;
+  font-weight: 700;
+  border: 1px solid currentColor;
+  border-top-width: 3px;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.rail-heading,
+.task-section h2,
+.section-top h2,
+.fields h3,
+.child-editor h3,
+.welcome h2 {
+  font-weight: 650;
+}
+.rail-heading {
+  margin: 24px 8px 8px;
+  min-height: 24px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+.tag-cloud,
+.list-editor,
+.question-actions,
+.deadline-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.list-editor {
+  padding: 8px 0;
+}
+.rail-foot {
+  margin-top: auto;
+  padding: 24px 5px 0;
+}
+.rail-foot small,
+.metadata,
+.task-row time,
+.thread small,
+.view-head p,
+.reminders small,
+.reply-pending,
+.empty-list {
+  color: var(--muted);
+}
+.rail-foot small,
+.reminders small {
+  display: block;
+  margin-top: 4px;
+}
+.planner-main,
+.chat-pane {
+  overflow: hidden;
+}
+.toolbar,
+.pane-head {
+  width: 100%;
+  min-height: 66px;
+  flex-shrink: 0;
+  padding: 10px clamp(12px, 2vw, 28px);
+  border-bottom: 1px solid var(--separator);
+}
+.toolbar .search,
+.capture .input,
+.row-text,
+.reminders > div > span {
+  flex: 1;
+  min-width: 0;
+}
+.filters {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px clamp(12px, 2vw, 28px);
+  border-bottom: 1px solid var(--separator);
+}
+.filters > *,
+.fields > *,
+.combo-box__input-group,
+.select__trigger,
+.date-field__group {
+  min-width: 0;
+}
+.list-scroll,
+.editor,
+.scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.list-scroll,
+.editor {
+  padding: clamp(18px, 3vw, 44px);
+}
+.view-head,
+.section-top {
+  justify-content: space-between;
+}
+.view-head h1 {
+  font-weight: 720;
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  letter-spacing: -0.055em;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+.view-head p {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+.capture {
+  margin: 22px 0 26px;
+}
+.task-section {
+  margin-block: 22px;
+}
+.task-section h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.task-section h2 small {
+  border-radius: 12px;
+  padding: 1px 8px;
+  font-size: 0.75rem;
+  background: var(--default);
+  color: var(--muted);
+}
+.task-section > ul,
+.fields,
+.child-editor,
+.reminders,
+.preview {
+  background: var(--surface);
+  border-radius: var(--radius-3xl, 20px);
+  box-shadow: var(--surface-shadow);
+  padding: 12px 16px;
+}
+.task-row {
+  min-height: 62px;
+}
+.task-section li + li {
+  border-top: 1px solid var(--separator);
+}
+.task-row .title-button {
+  height: auto;
+  max-width: 100%;
+  min-width: 0;
+  padding: 5px 0;
+  justify-content: flex-start;
+  white-space: normal;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.metadata,
+.task-row time {
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+.task-row .star.active {
+  color: var(--accent);
+}
+.task-row .overdue,
+.task-section[data-overdue] h2 {
+  color: var(--danger);
+}
+.task-row.completed .title-button {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.nested {
+  margin-inline-start: 12px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--separator);
+}
+.empty-list {
+  text-align: center;
+  padding: 52px 12px;
+}
+.empty-list span {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--surface-shadow);
+  margin-bottom: 12px;
+}
+.completion-status {
+  position: sticky;
+  bottom: 4px;
+  text-align: center;
+  pointer-events: none;
+}
+.completion-status span {
+  padding: 8px 16px;
+  border-radius: 16px;
+  background: var(--success-soft);
+  color: var(--success-soft-foreground);
+}
+.reminders {
+  margin-bottom: 20px;
+}
+.reminders > div {
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: fixed;
+  inset: 10px auto auto 50%;
+  translate: -50% 0;
+  z-index: 10;
+  padding: 6px 12px;
+  border-radius: 12px;
+  background: var(--danger-soft);
+  color: var(--danger-soft-foreground);
+}
+.chat-pane {
+  border-inline-start: 1px solid var(--separator);
+}
+.pane-head {
+  padding-inline: 14px;
+}
+.pane-head strong {
+  white-space: nowrap;
+}
+.clear-chat {
+  margin-inline-start: auto;
+}
+.welcome {
+  padding: 32px 16px;
+}
+.welcome h2 {
+  margin-block: 12px 16px;
+  font-size: 1.15rem;
+}
+.examples {
+  display: grid;
+  gap: 8px;
+}
+.examples .button {
+  justify-content: space-between;
+}
+.thread {
+  display: grid;
+  gap: 18px;
+  padding: 18px 14px;
+}
+.message {
+  min-width: 0;
+  max-width: 100%;
+}
+.message.user {
+  justify-self: end;
+  max-width: 92%;
+}
+.message > div,
+.preview p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.6;
+}
+.message.user > div {
+  background: var(--accent-soft);
+  color: var(--accent-soft-foreground);
+  padding: 8px 12px;
+  border-radius: 14px;
+}
+.user small {
+  display: block;
+  text-align: end;
+}
+.chat-question {
+  position: relative;
+  min-width: 0;
+  margin-top: 8px;
+}
+.deadline-choices[inert] {
+  position: absolute;
+  inset: 0 0 auto;
+  pointer-events: none;
+}
+.task-choice,
+.chat-question form {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+}
+.chat-question form {
+  padding: 12px;
+  background: var(--background);
+  border-radius: 14px;
+  gap: 10px;
+}
+.task-choice span {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+.composer {
+  position: relative;
+  flex: none;
+  margin: 10px;
+}
+.composer textarea {
+  width: 100%;
+  min-height: 84px;
+  padding-inline-end: 60px;
+}
+.composer .send {
+  position: absolute;
+  inset: auto 8px 8px auto;
+}
+.preview {
+  margin: 8px;
+  background: var(--background);
+}
+.preview p {
+  margin-block: 6px 10px;
+}
+.fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-block: 16px;
+  padding: 18px;
+}
+.wide {
+  grid-column: 1/-1;
+}
+.child-editor {
+  display: grid;
+  gap: 10px;
+}
+.editor-actions {
+  flex-wrap: wrap;
+}
+.mobile-only,
+[hidden] {
+  display: none !important;
+}
+@media (min-width: 761px) and (max-width: 1000px) {
+  .brand { gap: 6px; padding-inline: 0; }
+  .brand b { font-size: 1.13rem; }
+  .brand img { width: 26px; }
+  .planner-app {
+    grid-template-columns: 150px minmax(0, 1fr) 245px;
+  }
+  .rail {
+    padding-inline: 8px;
+  }
+  .list-scroll,
+  .editor {
+    padding: 16px 12px;
+  }
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .task-row {
+    gap: 3px;
+  }
+}
+@media (max-width: 760px) {
+  .planner-app {
+    display: block;
+  }
+  .rail,
+  .planner-main,
+  .chat-pane {
+    height: 100%;
+  }
+  .rail,
+  .chat-pane {
+    display: none;
+  }
+  .mobile-only {
+    display: inline-flex !important;
+  }
+  .planner-app[data-pane="nav"] .rail,
+  .planner-app[data-pane="chat"] .chat-pane {
+    display: flex;
+  }
+  .planner-app[data-pane="nav"] .planner-main,
+  .planner-app[data-pane="chat"] .planner-main {
+    display: none;
+  }
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .planner-app .button,
+  .planner-app .checkbox,
+  .planner-app .select__trigger,
+  .planner-app .combo-box__input-group,
+  .planner-app .input,
+  .planner-app .date-field__group,
+  .planner-app .time-field__group {
+    min-height: 44px;
+  }
+  .planner-app .button--icon-only,
+  .planner-app .checkbox {
+    min-width: 44px;
+  }
+  .chat-pane {
+    border: 0;
+  }
+  .task-row {
+    gap: 3px;
+  }
+  .composer {
+    margin-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+}

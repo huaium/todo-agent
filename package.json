@@ -7,7 +7,7 @@
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
     "build": "esbuild src/main.tsx --bundle --minify --outfile=dist/chat.js && tailwindcss -i src/theme.css -o dist/theme.css --minify",
     "start": "node --env-file-if-exists=.env server/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
     "test": "node --test server/*.test.ts",
     "fmt": "oxfmt --write .",
     "fmt:check": "oxfmt --check .",

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button, Checkbox, Dropdown } from "@heroui/react";
 import {
   inbox,
   offsetDate,
@@ -70,24 +71,29 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
     return (
       <li key={task.id}>
         <div className={"task-row" + (task.done ? " completed" : "")}>
-          <button
+          <Checkbox
             className="circle-check"
-            role="checkbox"
-            aria-checked={task.done}
+            isSelected={task.done}
             aria-label={(task.done ? "重新打开" : "完成") + task.title}
-            onClick={() => void toggleDone(task)}
-          />
+            onChange={() => void toggleDone(task)}
+          >
+            <Checkbox.Control>
+              <Checkbox.Indicator />
+            </Checkbox.Control>
+          </Checkbox>
           <div className="row-text">
-            <button className="title-button" onClick={() => open(task.id)}>
+            <Button variant="ghost" className="title-button" onPress={() => open(task.id)}>
               {task.title}
-            </button>
+            </Button>
             {(meta.length > 0 || children.length > 0) && (
               <div className="metadata">
                 {meta.join(" · ")}{" "}
                 {children.length > 0 && (
-                  <button
+                  <Button
+                    size="sm"
+                    variant="ghost"
                     aria-expanded={expanded.has(task.id)}
-                    onClick={() =>
+                    onPress={() =>
                       setExpanded((old) => {
                         const next = new Set(old);
                         if (!next.delete(task.id)) next.add(task.id);
@@ -96,7 +102,7 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
                     }
                   >
                     {expanded.has(task.id) ? "▾" : "▸"} {children.length} 个子任务
-                  </button>
+                  </Button>
                 )}
               </div>
             )}
@@ -106,24 +112,41 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
               {task.dueDate === today ? "今天" : task.dueDate.slice(5)} {task.dueTime}
             </time>
           )}
-          <button
+          <Button
+            variant="ghost"
+            isIconOnly
+            size="sm"
             className={"star" + (task.starred ? " active" : "")}
             aria-label={"星标" + task.title}
             aria-pressed={!!task.starred}
-            onClick={() => patch(task.id, { starred: !task.starred })}
+            onPress={() => void patch(task.id, { starred: !task.starred })}
           >
             {task.starred ? "★" : "☆"}
-          </button>
-          <details className="row-menu">
-            <summary aria-label={"操作" + task.title}>···</summary>
-            <div onClick={(e) => e.currentTarget.parentElement?.removeAttribute("open")}>
-              <button onClick={() => open(task.id)}>编辑详情</button>
-              <button onClick={() => patch(task.id, { dueDate: offsetDate(today, 1) })}>
-                明天
-              </button>
-              <button onClick={() => patch(task.id, { dueDate: null })}>移除截止日期</button>
-            </div>
-          </details>
+          </Button>
+          <Dropdown>
+            <Button variant="ghost" isIconOnly size="sm" aria-label={"操作" + task.title}>
+              ···
+            </Button>
+            <Dropdown.Popover>
+              <Dropdown.Menu aria-label="任务操作">
+                <Dropdown.Item id="edit" onAction={() => open(task.id)}>
+                  编辑详情
+                </Dropdown.Item>
+                <Dropdown.Item
+                  id="tomorrow"
+                  onAction={() => void patch(task.id, { dueDate: offsetDate(today, 1) })}
+                >
+                  明天
+                </Dropdown.Item>
+                <Dropdown.Item
+                  id="unschedule"
+                  onAction={() => void patch(task.id, { dueDate: null })}
+                >
+                  移除截止日期
+                </Dropdown.Item>
+              </Dropdown.Menu>
+            </Dropdown.Popover>
+          </Dropdown>
         </div>
         {expanded.has(task.id) && children.length > 0 && (
           <ul className="nested">

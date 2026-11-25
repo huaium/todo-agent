@@ -1,4 +1,6 @@
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { Button, Dropdown, Input } from "@heroui/react";
+import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
 import { priorities } from "../shared/task.ts";
 import { TaskList } from "./TaskList.tsx";
@@ -13,33 +15,6 @@ const views = [
   ["all", "全部", "☷"],
   ["done", "已完成", "✓"],
 ] as const;
-
-function FilterField({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string;
-  value: string;
-  onChange(value: string): void;
-  children: ReactNode;
-}) {
-  return (
-    <label className="filter-field">
-      <span>{label}</span>
-      <select
-        aria-label={`按${label}筛选`}
-        data-active={value !== "" || undefined}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      >
-        <option value="">全部</option>
-        {children}
-      </select>
-    </label>
-  );
-}
 
 export default function App() {
   const { data, ready, error, setError, act, changed, today, due } = usePlanner();
@@ -57,6 +32,8 @@ export default function App() {
   const capture = useRef<HTMLInputElement>(null);
   const [listEdit, setListEdit] = useState<string | null>(null);
   const [listName, setListName] = useState("");
+  const [deleteList, setDeleteList] = useState(false);
+  const listMenu = useRef<HTMLButtonElement>(null);
   const [notifications, setNotifications] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
@@ -159,63 +136,69 @@ export default function App() {
       {error && (
         <div className="error-banner" role="alert">
           {error}
-          <button onClick={() => setError("")}>关闭</button>
+          <Button variant="ghost" size="sm" onPress={() => setError("")}>
+            关闭
+          </Button>
         </div>
       )}
       <nav className="rail" aria-label="工作区导航">
         <div className="brand">
           <img src="/logo.png" alt="" />
           <b>TokeNow</b>
-          <button className="mobile-only" onClick={() => setPane("list")}>
+          <Button variant="ghost" className="mobile-only" onPress={() => setPane("list")}>
             返回
-          </button>
+          </Button>
         </div>
         <div className="nav-views">
           {views.map(([id, name, icon]) => (
-            <button
+            <Button
+              variant={view === id ? "secondary" : "ghost"}
               key={id}
               aria-current={view === id ? "page" : undefined}
-              onClick={() => navigate(id)}
+              onPress={() => navigate(id)}
             >
               <i aria-hidden="true">
                 {id === "today" ? <span className="calendar-day">{today.slice(-2)}</span> : icon}
               </i>
               {name}
               <small>{data.tasks.filter((t) => inView(t, id)).length || ""}</small>
-            </button>
+            </Button>
           ))}
         </div>
         <div className="rail-heading">
           我的清单
-          <button
-            title="新建清单"
+          <Button
+            variant="ghost"
+            size="sm"
+            isIconOnly
             aria-label="新建清单"
-            onClick={() => {
+            onPress={() => {
               setListEdit("new");
               setListName("");
             }}
           >
             ＋
-          </button>
+          </Button>
         </div>
         <div className="nav-views">
           {data.lists.map((l) => (
-            <button
+            <Button
+              variant={personal === l.id ? "secondary" : "ghost"}
               key={l.id}
               aria-current={personal === l.id ? "page" : undefined}
-              onClick={() => navigate("list:" + l.id)}
+              onPress={() => navigate("list:" + l.id)}
             >
               <i aria-hidden="true">{l.id === inbox ? "▱" : "≡"}</i>
               {l.name}
               <small>
                 {data.tasks.filter((t) => (t.listId ?? inbox) === l.id && !t.done).length || ""}
               </small>
-            </button>
+            </Button>
           ))}
         </div>
         {listEdit !== null && (
           <form className="list-editor" onSubmit={saveList}>
-            <input
+            <Input
               aria-label="清单名称"
               placeholder="清单名称"
               maxLength={80}
@@ -223,10 +206,12 @@ export default function App() {
               value={listName}
               onChange={(e) => setListName(e.target.value)}
             />
-            <button>保存</button>
-            <button type="button" onClick={() => setListEdit(null)}>
+            <Button size="sm" type="submit">
+              保存
+            </Button>
+            <Button size="sm" variant="tertiary" onPress={() => setListEdit(null)}>
               取消
-            </button>
+            </Button>
           </form>
         )}
         {tags.length > 0 && (
@@ -234,19 +219,26 @@ export default function App() {
             <div className="rail-heading">标签</div>
             <div className="tag-cloud">
               {tags.map((t) => (
-                <button
+                <Button
+                  size="sm"
+                  variant={tag === t ? "secondary" : "ghost"}
                   key={t}
                   className={tag === t ? "chosen" : ""}
-                  onClick={() => navigate("all", t)}
+                  onPress={() => navigate("all", t)}
                 >
                   # {t}
-                </button>
+                </Button>
               ))}
             </div>
           </>
         )}
         <div className="rail-foot">
-          <button onClick={notify} disabled={notifications !== "default"}>
+          <Button
+            variant="tertiary"
+            size="sm"
+            onPress={notify}
+            isDisabled={notifications !== "default"}
+          >
             {notifications === "granted"
               ? "✓ 浏览器通知已开启"
               : notifications === "denied"
@@ -254,64 +246,79 @@ export default function App() {
                 : notifications === "unsupported"
                   ? "使用应用内提醒"
                   : "开启浏览器通知"}
-          </button>
+          </Button>
           <small>{data.timeZone}</small>
         </div>
       </nav>
       <main className="planner-main">
         <div className="toolbar">
-          <button className="mobile-only" aria-label="打开导航" onClick={() => setPane("nav")}>
+          <Button
+            variant="tertiary"
+            isIconOnly
+            className="mobile-only"
+            aria-label="打开导航"
+            onPress={() => setPane("nav")}
+          >
             ☰
-          </button>
-          <label className="search">
-            <span aria-hidden="true">⌕</span>
-            <input
-              type="search"
-              aria-label="搜索任务"
-              placeholder="搜索任务、清单或标签"
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                if (!query && !personal) setView("all");
-              }}
-            />
-          </label>
-          <button
+          </Button>
+          <Input
+            className="search"
+            type="search"
+            aria-label="搜索任务"
+            placeholder="搜索任务、清单或标签"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              if (!query && !personal) setView("all");
+            }}
+          />
+          <Button
+            variant={filtered || filters ? "secondary" : "tertiary"}
             aria-expanded={filters}
             className={filtered ? "selected-filter" : ""}
-            onClick={() => setFilters(!filters)}
+            onPress={() => setFilters(!filters)}
           >
             筛选{filtered ? " •" : ""}
-          </button>
-          <button className="mobile-only" onClick={() => setPane("chat")}>
+          </Button>
+          <Button variant="secondary" className="mobile-only" onPress={() => setPane("chat")}>
             小明
-          </button>
+          </Button>
         </div>
         {filters && (
           <div className="filters" role="group" aria-label="任务筛选">
-            <FilterField label="清单" value={listFilter} onChange={setListFilter}>
-              {data.lists.map((l) => (
-                <option key={l.id} value={l.id}>
-                  {l.name}
-                </option>
-              ))}
-            </FilterField>
-            <FilterField label="标签" value={tag} onChange={setTag}>
-              {tags.map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </FilterField>
-            <FilterField label="优先级" value={priority} onChange={setPriority}>
-              {priorities.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </FilterField>
-            <FilterField label="完成状态" value={status} onChange={setStatus}>
-              <option value="open">待办</option>
-              <option value="done">已完成</option>
-            </FilterField>
+            <ChoiceField
+              searchable
+              label="清单"
+              value={listFilter}
+              onChange={setListFilter}
+              choices={[
+                { value: "", label: "全部清单" },
+                ...data.lists.map((l) => ({ value: l.id, label: l.name })),
+              ]}
+            />
+            <ChoiceField
+              searchable
+              label="标签"
+              value={tag}
+              onChange={setTag}
+              choices={[{ value: "", label: "全部标签" }, ...options(tags)]}
+            />
+            <ChoiceField
+              label="优先级"
+              value={priority}
+              onChange={setPriority}
+              choices={[{ value: "", label: "全部优先级" }, ...options(priorities)]}
+            />
+            <ChoiceField
+              label="完成状态"
+              value={status}
+              onChange={setStatus}
+              choices={[
+                { value: "", label: "全部状态" },
+                { value: "open", label: "待办" },
+                { value: "done", label: "已完成" },
+              ]}
+            />
           </div>
         )}
         <div className="list-scroll" hidden={!!selectedTask}>
@@ -361,38 +368,44 @@ export default function App() {
               </p>
             </div>
             {personal && personal !== inbox && (
-              <details className="row-menu">
-                <summary aria-label="清单操作">···</summary>
-                <div>
-                  <button
-                    onClick={() => {
-                      setListEdit(personal);
-                      setListName(label);
-                      setPane("nav");
-                    }}
-                  >
-                    重命名清单
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (
-                        confirm("删除清单并将任务移入收件箱？") &&
-                        (await act("planner/lists/" + personal, "DELETE"))
-                      )
-                        navigate("list:" + inbox);
-                    }}
-                  >
-                    删除清单
-                  </button>
-                </div>
-              </details>
+              <Dropdown>
+                <Button ref={listMenu} variant="tertiary" isIconOnly aria-label="清单操作">
+                  ···
+                </Button>
+                <Dropdown.Popover>
+                  <Dropdown.Menu aria-label="清单操作">
+                    <Dropdown.Item
+                      id="rename"
+                      onAction={() => {
+                        setListEdit(personal);
+                        setListName(label);
+                        setPane("nav");
+                      }}
+                    >
+                      重命名清单
+                    </Dropdown.Item>
+                    <Dropdown.Item
+                      id="delete"
+                      variant="danger"
+                      onAction={() => setDeleteList(true)}
+                    >
+                      删除清单
+                    </Dropdown.Item>
+                  </Dropdown.Menu>
+                </Dropdown.Popover>
+              </Dropdown>
             )}
           </div>
           <form className="capture" onSubmit={create}>
-            <button disabled={saving || !draft.trim()} aria-label="添加任务">
+            <Button
+              type="submit"
+              isIconOnly
+              isDisabled={saving || !draft.trim()}
+              aria-label="添加任务"
+            >
               ＋
-            </button>
-            <input
+            </Button>
+            <Input
               aria-label="快速添加任务"
               ref={capture}
               maxLength={200}
@@ -426,6 +439,22 @@ export default function App() {
           />
         )}
       </main>
+      <ConfirmAction
+        open={deleteList}
+        title={`删除「${label}」？`}
+        action="删除清单"
+        consequence="清单内的任务将移入收件箱。"
+        close={() => {
+          setDeleteList(false);
+          listMenu.current?.focus();
+        }}
+        confirm={async () => {
+          if (!personal || !(await act("planner/lists/" + personal, "DELETE"))) return false;
+          navigate("list:" + inbox);
+          capture.current?.focus();
+          return true;
+        }}
+      />
       <ChatPanel
         context={{
           view: label,

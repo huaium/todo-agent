@@ -1,5 +1,6 @@
 @import "tailwindcss" source(none);
 @import "@heroui/styles";
+@import "./workspace.css";
 @source "./*.tsx";
 
 body {
