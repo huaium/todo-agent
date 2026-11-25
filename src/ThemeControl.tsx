@@ -1,15 +1,16 @@
 import { useEffect, useLayoutEffect, useState } from "react";
+import { Button } from "@heroui/react";
 import { applyTheme, readTheme, systemTheme, themeKey, type ThemeMode } from "./appearance.ts";
-import { ChoiceField } from "./PlannerControls.tsx";
 
-const themes = [
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
-  { value: "auto", label: "跟随系统" },
-] satisfies { value: ThemeMode; label: string }[];
+const themes = {
+  auto: { label: "跟随系统", next: "light" },
+  light: { label: "浅色", next: "dark" },
+  dark: { label: "深色", next: "auto" },
+} satisfies Record<ThemeMode, { label: string; next: ThemeMode }>;
 
 export function ThemeControl() {
   const [mode, setMode] = useState(readTheme);
+  const { label, next } = themes[mode];
 
   useLayoutEffect(() => {
     const sync = () => applyTheme(mode);
@@ -28,12 +29,10 @@ export function ThemeControl() {
     return () => window.removeEventListener("storage", sync);
   }, []);
 
-  function select(value: string) {
-    const theme = themes.find((item) => item.value === value);
-    if (!theme) return;
-    setMode(theme.value);
+  function cycleTheme() {
+    setMode(next);
     try {
-      localStorage.setItem(themeKey, theme.value);
+      localStorage.setItem(themeKey, next);
     } catch (error) {
       // Storage can be blocked or full. Keep the choice for this tab.
       if (
@@ -46,5 +45,15 @@ export function ThemeControl() {
     }
   }
 
-  return <ChoiceField label="主题" value={mode} choices={themes} onChange={select} />;
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      className="theme-button"
+      onPress={cycleTheme}
+      aria-label={`主题 · ${label}，切换到${themes[next].label}`}
+    >
+      主题 · {label}
+    </Button>
+  );
 }

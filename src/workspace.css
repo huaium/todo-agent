@@ -114,7 +114,9 @@
   margin-top: auto;
   padding: 24px 5px 0;
 }
-.rail-foot > .select {
+.rail-foot .theme-button {
+  display: flex;
+  width: fit-content;
   margin-bottom: 12px;
 }
 .rail-foot small,
