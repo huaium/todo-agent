@@ -66,9 +66,7 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
             aria-checked={task.done}
             aria-label={(task.done ? "重新打开" : "完成") + task.title}
             onClick={() => patch(task.id, { done: !task.done })}
-          >
-            {task.done ? "✓" : ""}
-          </button>
+          />
           <div className="row-text">
             <button className="title-button" onClick={() => open(task.id)}>
               {task.title}
@@ -138,7 +136,7 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
         const rows = groups.get(key)!;
         const ids = new Set(rows.map((t) => t.id));
         return (
-          <section className="task-section" key={key}>
+          <section className="task-section" data-overdue={key === "已逾期" || undefined} key={key}>
             <h2>
               {key} <small>{rows.length}</small>
             </h2>

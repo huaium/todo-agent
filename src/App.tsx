@@ -144,8 +144,12 @@ export default function App() {
         </div>
         <div className="nav-views">
           {views.map(([id, name, icon]) => (
-            <button key={id} className={view === id ? "chosen" : ""} onClick={() => navigate(id)}>
-              <i>{icon}</i>
+            <button
+              key={id}
+              aria-current={view === id ? "page" : undefined}
+              onClick={() => navigate(id)}
+            >
+              <i aria-hidden="true">{icon}</i>
               {name}
               <small>{data.tasks.filter((t) => inView(t, id)).length || ""}</small>
             </button>
@@ -168,10 +172,10 @@ export default function App() {
           {data.lists.map((l) => (
             <button
               key={l.id}
-              className={personal === l.id ? "chosen" : ""}
+              aria-current={personal === l.id ? "page" : undefined}
               onClick={() => navigate("list:" + l.id)}
             >
-              <i>{l.id === inbox ? "▱" : "≡"}</i>
+              <i aria-hidden="true">{l.id === inbox ? "▱" : "≡"}</i>
               {l.name}
               <small>
                 {data.tasks.filter((t) => (t.listId ?? inbox) === l.id && !t.done).length || ""}

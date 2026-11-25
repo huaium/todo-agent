@@ -141,13 +141,16 @@ textarea {
   font-size: 12px;
   font-weight: 400;
 }
-.nav-views .chosen,
+.nav-views [aria-current="page"],
 .tag-cloud .chosen {
   background: #d7e6fc;
   color: #154e98;
 }
-.chosen i {
+.nav-views [aria-current="page"] i {
   color: #246ac0;
+}
+.nav-views [aria-current="page"] {
+  box-shadow: inset 3px 0 var(--blue);
 }
 .rail-heading {
   margin: 20px 8px 7px;
@@ -299,7 +302,7 @@ textarea {
   gap: 7px;
   align-items: center;
   border: 1px solid #a9c2e8;
-  background: #fafcff;
+  background: #f4f8ff;
   border-radius: 8px;
   margin: 24px 0;
 }
@@ -328,8 +331,21 @@ textarea {
   margin-left: 5px;
 }
 .task-section h2 small {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #edf2f8;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   color: var(--muted);
+}
+.task-section[data-overdue] h2 {
+  color: #974638;
+}
+.task-section[data-overdue] h2 small {
+  background: #f9eae6;
+  color: inherit;
 }
 .task-row {
   display: flex;
@@ -339,15 +355,24 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 .circle-check {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  padding: 0;
+}
+.circle-check::before {
+  content: "";
   width: 18px;
   height: 18px;
-  flex-shrink: 0;
   border: 1.5px solid #8697ac;
   border-radius: 50%;
-  padding: 0;
-  line-height: 15px;
 }
-.completed .circle-check {
+.completed .circle-check::before {
+  content: "✓";
+  border-color: #74a58a;
   background: #e2f1e8;
   color: #327052;
 }
@@ -375,6 +400,8 @@ textarea {
   font-size: 12px;
 }
 .task-row time {
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   text-align: right;
 }
@@ -394,10 +421,18 @@ textarea {
   position: relative;
 }
 .row-menu summary {
+  display: grid;
+  place-items: center;
   list-style: none;
   font-weight: 700;
   color: var(--muted);
   padding: 4px;
+}
+.star,
+.row-menu summary {
+  min-width: 30px;
+  min-height: 32px;
+  border-radius: 7px;
 }
 .row-menu summary::-webkit-details-marker {
   display: none;
@@ -715,7 +750,25 @@ textarea {
     padding: 20px 16px;
   }
   .task-row {
-    gap: 7px;
+    gap: 3px;
+  }
+  .circle-check,
+  .star,
+  .row-menu summary,
+  .composer button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .composer textarea {
+    padding-right: 62px;
+  }
+  .capture input,
+  .search input,
+  .composer textarea,
+  .fields input,
+  .fields select,
+  .fields textarea {
+    font-size: 16px;
   }
   .rail {
     padding: 20px;
