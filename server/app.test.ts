@@ -75,7 +75,7 @@ test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
 
 test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单", async (t) => {
   const { request, port, filename } = await startTestApp(t);
-  const tools = taskTools(port);
+  const tools = taskTools(port, createJsonTaskStore(filename));
   const execute = (name: string, args: string) =>
     tools.find((tool) => tool.definition.function.name === name)!.execute(args);
   await execute("createTask", JSON.stringify({ title: "买牛奶" }));
@@ -100,6 +100,39 @@ test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) =
 
   assert.equal((await request("PATCH", "/api/tasks/a", { done: true })).status, 200);
   assert.deepEqual(createJsonTaskStore(filename).list(), [{ ...first, done: true }, second]);
+});
+
+test("任务详情持久化，筛选到期子任务并保留已删除父任务的子项", async (t) => {
+  const { request, port, filename } = await startTestApp(t);
+  const store = createJsonTaskStore(filename);
+  const tools = taskTools(port, store);
+  const run = (name: string, args: unknown) =>
+    tools.find((tool) => tool.definition.function.name === name)!.execute(JSON.stringify(args));
+  const parent = store.create("准备发布");
+  const child = store.create("核对清单");
+  const details = { dueDate: "2028-02-29", priority: "高", effort: "小", parentId: parent.id };
+  assert.deepEqual(await run("setTaskDetails", { id: child.id, changes: details }), {
+    ...child,
+    ...details,
+  });
+  for (const changes of [
+    { parentId: child.id },
+    { parentId: "missing" },
+    { dueDate: "2027-02-29" },
+    { priority: "urgent" },
+  ]) {
+    assert.ok("error" in Object(await run("setTaskDetails", { id: parent.id, changes })));
+  }
+  assert.deepEqual(
+    await run("listTasks", { dueDate: details.dueDate, done: false, parentId: parent.id }),
+    [{ ...child, ...details }],
+  );
+  assert.equal((await request("PATCH", "/api/tasks/" + child.id, { effort: "大" })).status, 400);
+  await request("DELETE", "/api/tasks/" + parent.id);
+  const [reopened] = createJsonTaskStore(filename).list();
+  assert.deepEqual(reopened, { ...child, dueDate: details.dueDate, priority: "高", effort: "小" });
+  await run("setTaskDetails", { id: child.id, changes: { dueDate: null } });
+  assert.deepEqual(await run("listTasks", { dueDate: details.dueDate }), []);
 });
 
 test("聊天 API 只将有效的完整对话传给智能体，并返回其回复", async (t) => {

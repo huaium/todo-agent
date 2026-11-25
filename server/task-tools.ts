@@ -1,6 +1,9 @@
 import type { ChatCompletionFunctionTool } from "openai/resources/chat/completions";
 import { z } from "zod";
 import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
+import { detailsSchema, setDetails } from "./task-details.ts";
+import type { TaskStore } from "./task-store.ts";
+import type { Task } from "../shared/task.ts";
 
 export interface TaskTool {
   definition: ChatCompletionFunctionTool;
@@ -32,7 +35,7 @@ export function taskTool<S extends z.ZodObject>(
   };
 }
 
-export function taskTools(port: number): TaskTool[] {
+export function taskTools(port: number, store: TaskStore): TaskTool[] {
   const collection = `http://127.0.0.1:${port}/api/tasks`;
   async function request(method: string, id?: string, body?: unknown) {
     const url = id === undefined ? collection : `${collection}/${encodeURIComponent(id)}`;
@@ -49,7 +52,21 @@ export function taskTools(port: number): TaskTool[] {
   }
   const id = z.string().min(1).describe("从任务清单读取的任务 ID");
   return [
-    taskTool("listTasks", "读取当前所有任务及其完成状态", z.strictObject({}), () => request("GET")),
+    taskTool(
+      "listTasks",
+      "读取清单。可按截止日期、完成状态或父任务 ID 筛选；今天到期默认只查未完成任务。",
+      z.strictObject({
+        dueDate: z.iso.date().optional(),
+        done: z.boolean().optional(),
+        parentId: id.optional(),
+      }),
+      async (filters) => {
+        const tasks: Task[] = await request("GET");
+        return tasks.filter((task) =>
+          Object.entries(filters).every(([field, value]) => task[field] === value),
+        );
+      },
+    ),
     taskTool("createTask", "创建一条未完成的任务", createTaskSchema, ({ title }) =>
       request("POST", undefined, { title }),
     ),
@@ -61,6 +78,12 @@ export function taskTools(port: number): TaskTool[] {
     ),
     taskTool("deleteTask", "删除用户指定的单条任务", z.strictObject({ id }), ({ id }) =>
       request("DELETE", id),
+    ),
+    taskTool(
+      "setTaskDetails",
+      "为已有任务设置截止日期、优先级、工作量或父任务 ID。创建子任务后设置其 parentId。传 null 可清除单个字段。",
+      z.strictObject({ id, changes: detailsSchema }),
+      async ({ id, changes }) => setDetails(store, id, changes),
     ),
   ];
 }
