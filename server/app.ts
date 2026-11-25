@@ -22,7 +22,11 @@ export function createApp({ reply, tasks }: AppDependencies) {
     }
     const answer = reply
       ? await reply(input.data.messages)
-      : await agentReply(input.data.messages, taskTools(req.socket.localPort!, tasks));
+      : await agentReply(
+          input.data.messages,
+          taskTools(req.socket.localPort!, tasks),
+          tasks.list(),
+        );
     res.json({ reply: answer });
   });
 

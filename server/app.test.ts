@@ -86,6 +86,7 @@ test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单",
     "error" in Object(await execute("updateTask", JSON.stringify({ id: task.id, changes: {} }))),
   );
   assert.deepEqual(await execute("listTasks", "{}"), [task]);
+  assert.deepEqual(await execute("listTasks", '{"display":true}'), { reply: "· 买牛奶（待办）" });
   await execute("updateTask", JSON.stringify({ id: task.id, changes: { done: true } }));
   assert.equal(createJsonTaskStore(filename).list()[0].done, true);
   await execute("deleteTask", JSON.stringify({ id: task.id }));

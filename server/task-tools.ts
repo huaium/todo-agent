@@ -6,6 +6,7 @@ import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
 
 export interface TaskTool {
+  writes: boolean;
   definition: ChatCompletionFunctionTool;
   execute(input: string): Promise<unknown>;
 }
@@ -15,9 +16,11 @@ export function taskTool<S extends z.ZodObject>(
   description: string,
   schema: S,
   run: (args: z.output<S>) => Promise<unknown>,
+  writes = false,
 ): TaskTool {
   const { $schema: _dialect, ...parameters } = z.toJSONSchema(schema);
   return {
+    writes,
     definition: { type: "function", function: { name, description, parameters } },
     async execute(input) {
       let args: unknown;
@@ -54,36 +57,55 @@ export function taskTools(port: number, store: TaskStore): TaskTool[] {
   return [
     taskTool(
       "listTasks",
-      "读取清单。可按截止日期、完成状态或父任务 ID 筛选；今天到期默认只查未完成任务。",
+      "读取清单。查找 ID 时省略 display，只需向用户展示清单时传 display=true。",
       z.strictObject({
         dueDate: z.iso.date().optional(),
         done: z.boolean().optional(),
         parentId: id.optional(),
+        display: z.boolean().optional(),
       }),
-      async (filters) => {
+      async ({ display, ...filters }) => {
         const tasks: Task[] = await request("GET");
-        return tasks.filter((task) =>
+        const matches = tasks.filter((task) =>
           Object.entries(filters).every(([field, value]) => task[field] === value),
         );
+        if (!display) return matches;
+        return {
+          reply: matches.length
+            ? matches
+                .map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`)
+                .join("\n")
+            : "没有符合条件的任务。",
+        };
       },
     ),
-    taskTool("createTask", "创建一条未完成的任务", createTaskSchema, ({ title }) =>
-      request("POST", undefined, { title }),
+    taskTool(
+      "createTask",
+      "创建一条未完成的任务",
+      createTaskSchema,
+      ({ title }) => request("POST", undefined, { title }),
+      true,
     ),
     taskTool(
       "updateTask",
       "修改指定任务的标题或完成状态",
       z.strictObject({ id, changes: updateTaskSchema }),
       ({ id, changes }) => request("PATCH", id, changes),
+      true,
     ),
-    taskTool("deleteTask", "删除用户指定的单条任务", z.strictObject({ id }), ({ id }) =>
-      request("DELETE", id),
+    taskTool(
+      "deleteTask",
+      "删除用户指定的单条任务",
+      z.strictObject({ id }),
+      ({ id }) => request("DELETE", id),
+      true,
     ),
     taskTool(
       "setTaskDetails",
       "为已有任务设置截止日期、优先级、工作量或父任务 ID。创建子任务后设置其 parentId。传 null 可清除单个字段。",
       z.strictObject({ id, changes: detailsSchema }),
       async ({ id, changes }) => setDetails(store, id, changes),
+      true,
     ),
     taskTool(
       "showTasksDue",
@@ -104,6 +126,12 @@ export function taskTools(port: number, store: TaskStore): TaskTool[] {
           : `${heading}：无。`;
         return { reply };
       },
+    ),
+    taskTool(
+      "replyWithoutChanges",
+      "用于问候、澄清、解释、分析查询结果或报告失败。此工具不修改任务，不能用于确认写入成功。",
+      z.strictObject({ message: z.string().trim().min(1) }),
+      async ({ message }) => ({ reply: message }),
     ),
   ];
 }
