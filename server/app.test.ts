@@ -94,6 +94,28 @@ test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) =
   assert.deepEqual(createJsonTaskStore(filename).list(), [{ ...first, done: true }, second]);
 });
 
+test("小明的清单操作和稍后提醒与规划界面共享数据", async (t) => {
+  const { port, filename } = await startTestApp(t);
+  const store = createJsonTaskStore(filename);
+  const tools = taskTools(port, store);
+  const run = async (name: string, args: object) =>
+    (await tools.find((tool) => tool.name === name)!.execute("planner-test", args)).details;
+  await run("manageList", { action: "create", name: "采购" });
+  const list = store.snapshot().lists.find((l) => l.name === "采购")!;
+  await run("manageList", { action: "rename", id: list.id, name: "购物" });
+  await run("createTask", {
+    title: "牛奶",
+    details: { listId: list.id, reminder: "2025-01-01T09:00" },
+  });
+  const [task] = store.list();
+  assert.equal(task.listId, list.id);
+  assert.deepEqual(await run("snoozeReminder", { id: task.id }), { snoozed: task.id });
+  assert.ok(store.list()[0].snoozeUntil);
+  await run("manageList", { action: "delete", id: list.id });
+  assert.equal(store.list()[0].id, task.id);
+  assert.equal(store.list()[0].listId, undefined);
+});
+
 test("任务详情持久化，筛选到期子任务并保留已删除父任务的子项", async (t) => {
   const { request, port, filename } = await startTestApp(t);
   const store = createJsonTaskStore(filename);
@@ -198,5 +220,34 @@ test(
         [c.id, undefined],
       ],
     );
+  },
+);
+
+test(
+  "小明建立每周五的任务，从原任务 API 完成后只生成一个带提醒的下周任务",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, filename } = await startTestApp(t);
+    await request("POST", "/api/planner/timezone", { timeZone: "Asia/Singapore" });
+    const response = await request("POST", "/api/chat", {
+      messages: [
+        {
+          role: "user",
+          content:
+            "请创建任务「交周报」，从 2030-01-04 周五开始，每周五到期，提前一天（周四）下午三点提醒我。",
+        },
+      ],
+    });
+    assert.equal(response.status, 200);
+    const store = createJsonTaskStore(filename);
+    const [first] = store.list();
+    assert.equal(first.repeat, "weekly");
+    assert.equal(first.reminder, "2030-01-03T15:00");
+    for (let i = 0; i < 2; i++)
+      assert.equal((await request("PATCH", "/api/tasks/" + first.id, { done: true })).status, 200);
+    const occurrences = store.list();
+    assert.equal(occurrences.length, 2);
+    assert.equal(occurrences[1].dueDate, "2030-01-11");
+    assert.equal(occurrences[1].reminder, "2030-01-10T15:00");
   },
 );

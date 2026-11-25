@@ -53,11 +53,9 @@ export function createApp({ reply, tasks }: AppDependencies) {
 
 const handleApiError: ErrorRequestHandler = (error, _req, res, _next) => {
   if (error instanceof PlannerError || error instanceof ZodError)
-    return res
-      .status(400)
-      .json({
-        error: error instanceof PlannerError ? error.message : "请检查输入的任务或清单字段。",
-      });
+    return res.status(400).json({
+      error: error instanceof PlannerError ? error.message : "请检查输入的任务或清单字段。",
+    });
   if (error.type === "entity.parse.failed") {
     return res.status(400).json({ error: "请求需要使用有效的 JSON。" });
   }

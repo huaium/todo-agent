@@ -1,7 +1,8 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { z } from "zod";
 import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
-import { detailsSchema, setDetails } from "./task-details.ts";
+import { detailsSchema } from "./task-details.ts";
+import { pendingReminder } from "../shared/planner.ts";
 import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
 import type { BulkPreview } from "../shared/chat.ts";
@@ -43,8 +44,8 @@ export function taskTools(
   store: TaskStore,
   preview?: (ids: string[], date: string) => BulkPreview,
 ): TaskTool[] {
-  const collection = `http://127.0.0.1:${port}/api/tasks`;
-  async function request(method: string, id?: string, body?: unknown) {
+  async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
+    const collection = `http://127.0.0.1:${port}/api/${resource}`;
     const url = id === undefined ? collection : `${collection}/${encodeURIComponent(id)}`;
     const response = await fetch(url, {
       method,
@@ -100,9 +101,12 @@ export function taskTools(
     ),
     taskTool(
       "createTask",
-      "创建一条未完成的任务",
-      createTaskSchema,
-      ({ title }) => request("POST", undefined, { title }),
+      "创建未完成任务。若已知截止日期、重复、提醒、清单或父任务，用 details 一起保存。",
+      createTaskSchema.extend({ details: detailsSchema.optional() }),
+      ({ title, details }) =>
+        details
+          ? request("POST", undefined, { title, ...details }, "planner/tasks")
+          : request("POST", undefined, { title }),
       true,
     ),
     taskTool(
@@ -122,8 +126,39 @@ export function taskTools(
     taskTool(
       "setTaskDetails",
       "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。批量改期使用 previewReschedule。",
-      z.strictObject({ id, changes: detailsSchema }),
-      async ({ id, changes }) => setDetails(store, id, changes),
+      z.strictObject({ id, changes: detailsSchema, scope: z.enum(["one", "future"]).optional() }),
+      ({ id, changes, scope }) => request("PATCH", id, { changes, scope }, "planner/tasks"),
+      true,
+    ),
+    taskTool(
+      "manageList",
+      "创建、重命名或删除个人清单。删除清单后任务回到收件箱。",
+      z.strictObject({
+        action: z.enum(["create", "rename", "delete"]),
+        id: id.optional(),
+        name: z.string().trim().min(1).max(80).optional(),
+      }),
+      async ({ action, id, name }) => {
+        if (action === "create" && name)
+          return request("POST", undefined, { name }, "planner/lists");
+        if (action === "rename" && id && name)
+          return request("PATCH", id, { name }, "planner/lists");
+        if (action === "delete" && id) return request("DELETE", id, undefined, "planner/lists");
+        return { error: "请提供所需的清单 ID 或名称。" };
+      },
+      true,
+    ),
+    taskTool(
+      "snoozeReminder",
+      "将已到点的任务提醒延后十分钟。",
+      z.strictObject({ id }),
+      async ({ id }) => {
+        const task = store.list().find((t) => t.id === id);
+        const at = task && pendingReminder(task);
+        if (!at) return { error: "找不到有效提醒。" };
+        const result = await request("POST", id, { at, action: "snooze" }, "planner/reminders");
+        return result.applied ? { snoozed: id } : { error: "提醒已更改或尚未到点。" };
+      },
       true,
     ),
     taskTool(

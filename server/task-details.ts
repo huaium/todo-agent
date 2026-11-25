@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { efforts, priorities } from "../shared/task.ts";
 import { frequencies } from "../shared/planner.ts";
-import type { TaskStore } from "./task-store.ts";
 
 export const detailsSchema = z
   .strictObject({
@@ -24,11 +23,3 @@ export const detailsSchema = z
   .refine((changes) => Object.keys(changes).length > 0, "请指定需要修改的字段。");
 export type TaskDetails = z.infer<typeof detailsSchema>;
 export class PlannerError extends Error {}
-export function setDetails(store: TaskStore, id: string, changes: TaskDetails) {
-  try {
-    return store.update(id, changes) ?? { error: "找不到这条任务。" };
-  } catch (error) {
-    if (error instanceof PlannerError) return { error: error.message };
-    throw error;
-  }
-}
