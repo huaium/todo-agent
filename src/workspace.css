@@ -384,12 +384,13 @@
 }
 .pane-head {
   padding-inline: var(--chat-inset);
+  flex-wrap: wrap;
+}
+.approval-mode {
+  margin-inline-start: auto;
 }
 .pane-head strong {
   white-space: nowrap;
-}
-.clear-chat {
-  margin-inline-start: auto;
 }
 .welcome {
   padding: 32px var(--chat-inset);
@@ -565,6 +566,16 @@
 }
 .preview p {
   margin-block: 6px 10px;
+}
+.approval-details {
+  max-height: min(20dvh, 9rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  margin-block: 6px 10px;
+}
+.approval-details li {
+  font-size: 0.8125rem;
 }
 .fields {
   display: grid;

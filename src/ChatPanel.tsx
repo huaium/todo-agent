@@ -1,9 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Button, TextArea } from "@heroui/react";
+import { Button, Dropdown, Label, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { useConversation } from "./chat-client.ts";
-import type { ChatMessage, ViewContext } from "../shared/chat.ts";
+import type { ApprovalMode, ChatMessage, ViewContext } from "../shared/chat.ts";
+const modeLabels = { allow: "全部允许", cautious: "审慎模式" } satisfies Record<
+  ApprovalMode,
+  string
+>;
 export function ChatPanel({
   context,
   changed,
@@ -22,6 +26,8 @@ export function ChatPanel({
     ? [...state!.messages, { role: "user", content: active.text }]
     : (state?.messages ?? []);
   const preview = !sending && state?.preview;
+  const mode = state?.approvalMode ?? "allow";
+  const approval = state?.approval;
   const input = useRef<HTMLTextAreaElement>(null);
   const seenRevision = useRef<number>(undefined);
   useEffect(() => {
@@ -51,6 +57,36 @@ export function ChatPanel({
       <div className="pane-head">
         <img src="/logo.png" alt="" />
         <strong>小明</strong>
+        <Dropdown>
+          <Button
+            variant="tertiary"
+            size="sm"
+            className="approval-mode"
+            isDisabled={busy}
+            aria-label={`审批模式：${modeLabels[mode]}`}
+          >
+            {state ? modeLabels[mode] : "审批模式"} <span aria-hidden="true">▾</span>
+          </Button>
+          <Dropdown.Popover>
+            <Dropdown.Menu
+              aria-label="审批模式"
+              selectionMode="single"
+              disallowEmptySelection
+              selectedKeys={[mode]}
+              onAction={(key) => {
+                if (state && !busy && key !== mode && (key === "allow" || key === "cautious"))
+                  void submit({ action: "setApprovalMode", revision: state.revision, mode: key });
+              }}
+            >
+              {(["allow", "cautious"] as const).map((key) => (
+                <Dropdown.Item key={key} id={key} textValue={modeLabels[key]}>
+                  <Label>{modeLabels[key]}</Label>
+                  <Dropdown.ItemIndicator />
+                </Dropdown.Item>
+              ))}
+            </Dropdown.Menu>
+          </Dropdown.Popover>
+        </Dropdown>
         {!!state?.messages.length && (
           <Button
             size="sm"
@@ -85,7 +121,7 @@ export function ChatPanel({
       {state ? (
         <ChatHistory
           messages={history}
-          pending={sending || state.pending}
+          pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}
           disabled={busy}
           onAnswer={(questionId, answer) =>
@@ -121,6 +157,50 @@ export function ChatPanel({
             取消
           </Button>
         </div>
+      )}
+      {state && approval && (
+        <section className="preview approval-card" aria-label="待审批的更改">
+          <strong>等待审批</strong>
+          <div className="approval-details" aria-live="polite">
+            <p>{approval.title}</p>
+            {approval.details.length > 0 && (
+              <ul>
+                {approval.details.map((detail, i) => (
+                  <li key={i}>{detail}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <Button
+            size="sm"
+            isDisabled={!!active}
+            onPress={() =>
+              void submit({
+                action: "review",
+                revision: state.revision,
+                token: approval.token,
+                allow: true,
+              })
+            }
+          >
+            允许此次更改
+          </Button>{" "}
+          <Button
+            size="sm"
+            variant="tertiary"
+            isDisabled={!!active}
+            onPress={() =>
+              void submit({
+                action: "review",
+                revision: state.revision,
+                token: approval.token,
+                allow: false,
+              })
+            }
+          >
+            取消
+          </Button>
+        </section>
       )}
       <form
         className="composer"
