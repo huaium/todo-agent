@@ -3,7 +3,7 @@ import { test, type TestContext } from "node:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTaskStore } from "./sqlite-task-store.ts";
+import { createTaskStore } from "./task-store.ts";
 import { openDatabase } from "./database.ts";
 import { nextDate, localMinute } from "../shared/planner.ts";
 import { bulkPreviews } from "./planner.ts";

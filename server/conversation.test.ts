@@ -5,24 +5,34 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { interruptedReply, openConversation, recentContext } from "./conversation.ts";
 import type { ChatMessage } from "../shared/chat.ts";
+import { openDatabase } from "./database.ts";
 
 test("重启后保留对话并结束中断的请求，只记录一次中断", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "planner-conversation-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const path = join(dir, "chat.json");
-  const chat = openConversation(path);
+  const db = openDatabase(dir);
+  const chat = openConversation(db);
   const messages: ChatMessage[] = [{ role: "user", content: "买茶叶" }];
-  chat.save({ messages, pending: true });
-  const recovered = openConversation(path);
+  chat.begin(0, messages[0].content);
+  db.close();
+  const reopened = openDatabase(dir);
+  t.after(() => reopened.close());
+  const recovered = openConversation(reopened);
+  recovered.recover();
   assert.deepEqual(recovered.read(), {
     revision: 2,
     pending: false,
     messages: [...messages, { role: "assistant", content: interruptedReply }],
-    preview: undefined,
   });
-  assert.equal(openConversation(path).read().revision, 2);
-  recovered.appendReply("待确认", { token: "preview", date: "2030-04-09", titles: ["买茶叶"] });
-  const afterRestart = openConversation(path).read();
+  recovered.recover();
+  assert.equal(recovered.state().revision, 2);
+  recovered.appendReply(2, false, "待确认", {
+    token: "preview",
+    date: "2030-04-09",
+    titles: ["买茶叶"],
+  });
+  recovered.recover();
+  const afterRestart = recovered.read();
   assert.equal(afterRestart.preview, undefined);
   assert.match(afterRestart.messages.at(-1)!.content, /预览已失效/);
 });

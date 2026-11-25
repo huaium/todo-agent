@@ -8,7 +8,7 @@ import {
   type ChatQuestion,
 } from "../shared/chat.ts";
 import { answerLabel, candidate, resolveQuestion, type QuestionResult } from "./chat-questions.ts";
-import { interruptedReply, openConversation, recentContext } from "./conversation.ts";
+import { ChatConflict, interruptedReply, type openConversation } from "./conversation.ts";
 import type { TaskStore } from "./task-store.ts";
 import { taskRouter } from "./tasks.ts";
 import { reply as agentReply } from "./agent.ts";
@@ -21,12 +21,12 @@ import type { BulkPreview } from "../shared/chat.ts";
 interface AppDependencies {
   reply?(messages: ChatMessage[]): Promise<string>;
   tasks: TaskStore;
+  chat: ReturnType<typeof openConversation>;
 }
 
-export function createApp({ reply, tasks }: AppDependencies) {
+export function createApp({ reply, tasks, chat }: AppDependencies) {
   const app = express();
   const bulk = bulkPreviews(tasks);
-  const chat = openConversation(tasks.filename + ".chat.json");
   app.use(express.json({ limit: "1mb" }));
 
   async function respond(
@@ -70,9 +70,10 @@ export function createApp({ reply, tasks }: AppDependencies) {
   }
 
   app.get("/api/chat", (req, res) => {
-    const state = chat.read();
     res.set("Cache-Control", "no-store");
-    return req.query.after === String(state.revision) ? res.sendStatus(204) : res.json(state);
+    return req.query.after === String(chat.state().revision)
+      ? res.sendStatus(204)
+      : res.json(chat.read());
   });
   app.post("/api/chat", async (req, res) => {
     const port = req.socket.localPort!;
@@ -83,48 +84,56 @@ export function createApp({ reply, tasks }: AppDependencies) {
       return res.json(await respond(input.data.messages, port, input.data.context));
     }
     const command = conversationCommand.parse(req.body);
-    const current = chat.read();
+    const current = chat.state();
     if (current.revision !== command.revision || current.pending)
       return res.status(409).json({ error: "对话已更新，请查看最新消息。" });
     if (command.action === "clear") {
       if (current.preview) bulk.discard(current.preview.token);
-      return res.json(chat.save({ messages: [], pending: false }));
+      chat.clear(command.revision);
+      return res.json(chat.read());
     }
     if (command.action === "send" || command.action === "answer") {
-      const previous = current.messages.at(-1)?.question;
+      const previous = chat.lastQuestion();
       if (command.action === "answer" && (!previous || previous.id !== command.questionId))
         return res.status(409).json({ error: "此问题已更新，请查看最新消息。" });
       const content =
         command.action === "send" ? command.text : answerLabel(previous!, command.answer);
-      const messages: ChatMessage[] = [...current.messages, { role: "user", content }];
-      chat.save({ messages, pending: true });
+      chat.begin(command.revision, content);
+      const pendingRevision = command.revision + 1;
       if (current.preview) bulk.discard(current.preview.token);
       let result: QuestionResult & { preview?: BulkPreview };
       try {
         result =
           command.action === "answer"
             ? await resolveQuestion(tasks, port, previous!, command.answer)
-            : await respond(recentContext(messages), port, command.context, true, previous);
+            : await respond(chat.context(), port, command.context, true, previous);
       } catch (error) {
-        chat.appendReply(interruptedReply);
+        chat.appendReply(pendingRevision, true, interruptedReply);
         throw error;
       }
-      return res.json(chat.appendReply(result.reply, result.preview, result.question));
+      chat.appendReply(pendingRevision, true, result.reply, result.preview, result.question);
+      return res.json(chat.read());
     }
     const preview = current.preview;
     if (!preview || preview.token !== command.token)
       return res.status(409).json({ error: "改期预览已变更。" });
     if (command.action === "cancel") {
       bulk.discard(preview.token);
-      return res.json(chat.appendReply("已取消改期。"));
+      chat.appendReply(command.revision, false, "已取消改期。");
+      return res.json(chat.read());
     }
     try {
       bulk.confirm(preview.token);
     } catch (error) {
-      if (error instanceof PlannerError) chat.appendReply(error.message);
+      if (error instanceof PlannerError) chat.appendReply(command.revision, false, error.message);
       throw error;
     }
-    return res.json(chat.appendReply(`已将 ${preview.titles.length} 条任务改到 ${preview.date}。`));
+    chat.appendReply(
+      command.revision,
+      false,
+      `已将 ${preview.titles.length} 条任务改到 ${preview.date}。`,
+    );
+    return res.json(chat.read());
   });
 
   app.all(["/api/tasks/:id", "/api/planner/tasks/:id"], (req, res, next) => {
@@ -152,6 +161,7 @@ export function createApp({ reply, tasks }: AppDependencies) {
 }
 
 const handleApiError: ErrorRequestHandler = (error, _req, res, _next) => {
+  if (error instanceof ChatConflict) return res.status(409).json({ error: error.message });
   if (error instanceof PlannerError || error instanceof ZodError)
     return res.status(400).json({
       error: error instanceof PlannerError ? error.message : "请检查输入的任务或清单字段。",

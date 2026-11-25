@@ -130,16 +130,23 @@ export function chatState(db: DatabaseSync): Omit<Conversation, "messages"> {
     ...(r.preview !== null && { preview: JSON.parse(String(r.preview)) }),
   };
 }
+export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
+  const fields = "SELECT role,content,question FROM messages ORDER BY seq";
+  const rows =
+    latest === undefined
+      ? db.prepare(fields).all()
+      : db
+          .prepare(fields + " DESC LIMIT ?")
+          .all(latest)
+          .reverse();
+  return rows.map((r) => ({
+    role: r.role as ChatMessage["role"],
+    content: String(r.content),
+    ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
+  }));
+}
 export function readConversation(db: DatabaseSync): Conversation {
-  const messages: ChatMessage[] = db
-    .prepare("SELECT role,content,question FROM messages ORDER BY seq")
-    .all()
-    .map((r) => ({
-      role: r.role as ChatMessage["role"],
-      content: String(r.content),
-      ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
-    }));
-  return { ...chatState(db), messages };
+  return { ...chatState(db), messages: readMessages(db) };
 }
 export function insertMessage(db: DatabaseSync, message: ChatMessage) {
   db.prepare("INSERT INTO messages(role,content,question) VALUES(?,?,?)").run(

@@ -1,11 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { z } from "zod";
+import type { DatabaseSync, StatementSync } from "node:sqlite";
+import { readPlanner, readTasks, transaction, type Series } from "./database.ts";
 import { PlannerError, type TaskDetails } from "./task-details.ts";
 import {
   dayDistance,
-  frequencies,
   inbox,
   localMinute,
   nextDate,
@@ -15,22 +13,8 @@ import {
   type PlannerTask,
 } from "../shared/planner.ts";
 
-const row = z.looseObject({ id: z.string(), title: z.string(), done: z.boolean() });
-const rows = z.array(row);
-const documentSchema = z.object({
-  version: z.literal(1),
-  lists: z.array(z.object({ id: z.string(), name: z.string() })),
-  timeZone: z.string().nullable(),
-  tasks: rows,
-  series: z.record(
-    z.string(),
-    z.object({ anchor: z.string(), frequency: z.enum(frequencies), template: row }),
-  ),
-});
-type Database = z.infer<typeof documentSchema> & { tasks: PlannerTask[] };
 type Changes = Partial<Pick<PlannerTask, "title" | "done">> & TaskDetails;
 export interface TaskStore {
-  readonly filename: string;
   list(): PlannerTask[];
   snapshot(): Planner;
   initializeZone(zone: string): void;
@@ -47,49 +31,47 @@ function fail(message: string): never {
 function shiftedReminder(reminder: string | null | undefined, days: number) {
   return reminder ? offsetDate(reminder.slice(0, 10), days) + reminder.slice(10) : reminder;
 }
-export function createJsonTaskStore(filename: string, now = () => new Date()): TaskStore {
-  const initial = (): Database => ({
-    version: 1,
-    tasks: [],
-    lists: [{ id: inbox, name: "收件箱" }],
-    timeZone: null,
-    series: {},
-  });
-  function save(db: Database) {
-    mkdirSync(dirname(filename), { recursive: true });
-    writeFileSync(filename + ".tmp", JSON.stringify(db, null, 2) + "\n");
-    renameSync(filename + ".tmp", filename);
+export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskStore {
+  const byId = db.prepare("SELECT payload FROM tasks WHERE id=?");
+  const byParent = db.prepare(
+    "SELECT payload FROM tasks WHERE json_extract(payload,'$.parentId')=? ORDER BY position",
+  );
+  const byList = db.prepare("SELECT payload FROM tasks WHERE json_extract(payload,'$.listId')=?");
+  const put = db.prepare(
+    "INSERT INTO tasks(id,payload) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+  );
+  const putSeries = db.prepare(
+    "INSERT INTO series(id,payload) VALUES(?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload",
+  );
+  function get(id: string): PlannerTask | undefined {
+    const r = byId.get(id);
+    return r && JSON.parse(String(r.payload));
   }
-  function read(): Database {
-    if (!existsSync(filename)) return initial();
-    const data: unknown = JSON.parse(readFileSync(filename, "utf8"));
-    if (!Array.isArray(data)) return documentSchema.parse(data);
-    const db = initial();
-    db.tasks = rows.parse(data);
-    save(db);
-    return db;
+  function matching(statement: StatementSync, id: string): PlannerTask[] {
+    return statement.all(id).map((r) => JSON.parse(String(r.payload)));
   }
-  function transact<T>(fn: (db: Database) => T): T {
-    const db = read();
-    const result = fn(db);
-    save(db);
-    return result;
+  function save(task: PlannerTask) {
+    put.run(task.id, JSON.stringify(task));
   }
-  function zone(db: Database) {
-    return db.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  function zone() {
+    return String(
+      db.prepare("SELECT time_zone FROM settings WHERE id=1").get()!.time_zone ??
+        Intl.DateTimeFormat().resolvedOptions().timeZone,
+    );
   }
-  function change(db: Database, t: PlannerTask, delta: Changes, scope: "one" | "future") {
+  function change(t: PlannerTask, delta: Changes, scope: "one" | "future") {
     const before = { ...t };
     Object.assign(t, delta);
     if (delta.tags) t.tags = [...new Set(delta.tags)];
-    const parent = db.tasks.find((p) => p.id === t.parentId);
+    const parent = t.parentId ? get(t.parentId) : undefined;
     if (t.parentId && !parent) fail("找不到父任务。");
     if (parent && (parent.repeat || t.repeat)) fail("重复任务不能包含子任务。");
     if (delta.parentId && parent) {
       if (typeof parent.listId === "string") t.listId = parent.listId;
       else delete t.listId;
     }
-    if (t.listId && !db.lists.some((l) => l.id === t.listId)) fail("清单不存在。");
+    if (t.listId && !db.prepare("SELECT 1 FROM lists WHERE id=?").get(t.listId))
+      fail("清单不存在。");
     if (parent && (parent.listId ?? inbox) !== (t.listId ?? inbox))
       fail("请先解除父任务关系再移动清单。");
     if (delta.parentId) {
@@ -98,14 +80,15 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       while (ancestor) {
         if (seen.has(ancestor.id)) fail("任务之间不能循环嵌套。");
         seen.add(ancestor.id);
-        ancestor = db.tasks.find((p) => p.id === ancestor!.parentId);
+        ancestor = ancestor.parentId ? get(ancestor.parentId) : undefined;
       }
     }
     if (before.listId !== t.listId) {
       const moving = new Set([t.id]);
       for (const id of moving)
-        for (const child of db.tasks.filter((p) => p.parentId === id)) {
+        for (const child of matching(byParent, id)) {
           child.listId = t.listId;
+          save(child);
           moving.add(child.id);
         }
     }
@@ -132,18 +115,23 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       delete t.snoozeUntil;
     }
     const hasSchedule = t.dueDate || (before.seriesId && scope === "one" && t.occurrenceDate);
-    if (t.repeat && (!hasSchedule || t.parentId || db.tasks.some((p) => p.parentId === t.id)))
+    if (t.repeat && (!hasSchedule || t.parentId || byParent.get(t.id)))
       fail("重复任务需要截止日期，且必须是独立任务。");
     if (t.repeat && !before.seriesId) {
       t.seriesId = randomUUID();
       t.occurrenceDate = t.dueDate!;
-      db.series[t.seriesId] = { anchor: t.dueDate!, frequency: t.repeat, template: { ...t } };
+      putSeries.run(
+        t.seriesId,
+        JSON.stringify({ anchor: t.dueDate!, frequency: t.repeat, template: { ...t } }),
+      );
     }
-    let series = t.seriesId ? db.series[t.seriesId] : undefined;
+    const stored =
+      t.seriesId && db.prepare("SELECT payload FROM series WHERE id=?").get(t.seriesId);
+    let series: Series | undefined = stored ? JSON.parse(String(stored.payload)) : undefined;
     if (before.seriesId && series && scope === "future") {
       if (before.successorId) fail("请从当前重复任务修改后续安排。");
       if (delta.repeat === null) {
-        delete db.series[before.seriesId];
+        db.prepare("DELETE FROM series WHERE id=?").run(before.seriesId);
         delete t.seriesId;
         series = undefined;
       } else {
@@ -163,6 +151,7 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
           series.anchor = t.dueDate!;
           t.occurrenceDate = t.dueDate!;
         }
+        putSeries.run(before.seriesId, JSON.stringify(series));
       }
     }
     if (before.done && delta.done === false && t.successorId) {
@@ -172,7 +161,7 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       delete t.successorId;
     }
     if (delta.done && !before.done && series && !t.successorId) {
-      const today = localMinute(now(), zone(db)).slice(0, 10);
+      const today = localMinute(now(), zone()).slice(0, 10);
       const after = [today, t.occurrenceDate ?? t.dueDate!].sort().at(-1)!;
       const date = nextDate(series.anchor, series.frequency, after);
       const template: PlannerTask = series.template;
@@ -190,94 +179,98 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       delete next.snoozeUntil;
       delete next.notifiedAt;
       t.successorId = next.id;
-      db.tasks.push(next);
+      save(next);
     }
+    save(t);
     return t;
   }
   return {
-    filename,
-    list: () => read().tasks,
-    snapshot() {
-      const { tasks, lists, timeZone } = read();
-      return { tasks, lists, timeZone };
-    },
+    list: () => readTasks(db),
+    snapshot: () => readPlanner(db),
     initializeZone(value) {
-      if (read().timeZone) return;
+      if (db.prepare("SELECT time_zone FROM settings WHERE id=1").get()!.time_zone) return;
       try {
         new Intl.DateTimeFormat("en", { timeZone: value });
       } catch {
         fail("无效的时区。");
       }
-      transact((db) => {
-        db.timeZone = value;
-      });
+      db.prepare("UPDATE settings SET time_zone=? WHERE id=1 AND time_zone IS NULL").run(value);
     },
     create(title, details = {}) {
-      return transact((db) => {
+      return transaction(db, () => {
         const t = { id: randomUUID(), title, done: false };
-        db.tasks.push(t);
-        return change(db, t, details, "future");
+        return change(t, details, "future");
       });
     },
     update(id, delta, scope = "one") {
-      return transact((db) => {
-        const task = db.tasks.find((p) => p.id === id);
-        return task && change(db, task, delta, scope);
+      return transaction(db, () => {
+        const task = get(id);
+        return task && change(task, delta, scope);
       });
     },
     remove(id) {
-      return transact((db) => {
-        const i = db.tasks.findIndex((p) => p.id === id);
-        if (i < 0) return false;
-        const [removed] = db.tasks.splice(i, 1);
-        for (const p of db.tasks) if (p.parentId === id) delete p.parentId;
+      return transaction(db, () => {
+        const removed = get(id);
+        if (!removed) return false;
+        db.prepare("DELETE FROM tasks WHERE id=?").run(id);
+        for (const p of matching(byParent, id)) {
+          delete p.parentId;
+          save(p);
+        }
         if (typeof removed.seriesId === "string" && !removed.done)
-          delete db.series[removed.seriesId];
+          db.prepare("DELETE FROM series WHERE id=?").run(removed.seriesId);
         return true;
       });
     },
     editList(id, name) {
-      return transact((db) => {
+      return transaction(db, () => {
         if (id === inbox) fail("收件箱是系统清单。");
-        if (name && db.lists.some((l) => l.name === name && l.id !== id)) fail("清单名称已存在。");
+        if (name && db.prepare("SELECT 1 FROM lists WHERE name=? AND id IS NOT ?").get(name, id))
+          fail("清单名称已存在。");
         if (!id) {
           if (!name) fail("请输入清单名称。");
           const list = { id: randomUUID(), name };
-          db.lists.push(list);
+          db.prepare("INSERT INTO lists(id,name) VALUES(?,?)").run(list.id, list.name);
           return list.id;
         }
-        const list = db.lists.find((l) => l.id === id);
+        const list = db.prepare("SELECT 1 FROM lists WHERE id=?").get(id);
         if (!list) fail("清单不存在。");
-        if (name) list.name = name;
+        if (name) db.prepare("UPDATE lists SET name=? WHERE id=?").run(name, id);
         else {
-          db.lists = db.lists.filter((l) => l.id !== id);
-          for (const task of [...db.tasks, ...Object.values(db.series).map((s) => s.template)])
-            if (task.listId === id) delete task.listId;
+          db.prepare("DELETE FROM lists WHERE id=?").run(id);
+          for (const task of matching(byList, id)) {
+            delete task.listId;
+            save(task);
+          }
+          db.prepare(
+            "UPDATE series SET payload=json_remove(payload,'$.template.listId') WHERE json_extract(payload,'$.template.listId')=?",
+          ).run(id);
         }
         return id;
       });
     },
     reschedule(ids, date) {
-      transact((db) => {
+      transaction(db, () => {
         for (const id of new Set(ids)) {
-          const t = db.tasks.find((p) => p.id === id);
+          const t = get(id);
           if (!t || t.done) fail("预览中的任务已变化，请重新预览。");
-          change(db, t, { dueDate: date }, "one");
+          change(t, { dueDate: date }, "one");
         }
       });
     },
     remind(id, expected, action) {
-      return transact((db) => {
-        const t: PlannerTask | undefined = db.tasks.find((p) => p.id === id);
-        const current = localMinute(now(), zone(db));
+      return transaction(db, () => {
+        const t = get(id);
+        const current = localMinute(now(), zone());
         if (!t || pendingReminder(t) !== expected || expected > current) return false;
         if (action === "snooze") {
-          t.snoozeUntil = localMinute(new Date(now().valueOf() + 600000), zone(db));
+          t.snoozeUntil = localMinute(new Date(now().valueOf() + 600000), zone());
           delete t.notifiedAt;
         } else {
           if (t.notifiedAt === expected) return false;
           t.notifiedAt = expected;
         }
+        save(t);
         return true;
       });
     },

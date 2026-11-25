@@ -1,44 +1,73 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import type { DatabaseSync } from "node:sqlite";
+import type { BulkPreview, ChatMessage, ChatQuestion } from "../shared/chat.ts";
 import {
-  conversationSchema,
-  type BulkPreview,
-  type ChatMessage,
-  type ChatQuestion,
-  type Conversation,
-} from "../shared/chat.ts";
+  chatState,
+  insertMessage,
+  readConversation,
+  readMessages,
+  transaction,
+} from "./database.ts";
 
 export const interruptedReply = "这次回复中断了。请先核对清单，再决定是否重新发送。";
 
-export function openConversation(filename: string) {
-  let state: Conversation = existsSync(filename)
-    ? conversationSchema.parse(JSON.parse(readFileSync(filename, "utf8")))
-    : { revision: 0, pending: false, messages: [] };
-
-  function save(next: Omit<Conversation, "revision">): Conversation {
-    const updated = { ...next, revision: state.revision + 1 };
-    mkdirSync(dirname(filename), { recursive: true });
-    writeFileSync(filename + ".tmp", JSON.stringify(updated), { mode: 0o600, flush: true });
-    renameSync(filename + ".tmp", filename);
-    state = updated;
-    return state;
+export class ChatConflict extends Error {
+  constructor() {
+    super("对话已更新，请查看最新消息。");
   }
-  function appendReply(content: string, preview?: BulkPreview, question?: ChatQuestion) {
-    return save({
-      pending: false,
-      messages: [...state.messages, { role: "assistant", content, ...(question && { question }) }],
-      preview,
+}
+export function openConversation(db: DatabaseSync) {
+  const advance = db.prepare(
+    "UPDATE conversation SET revision=revision+1,pending=?,preview=? WHERE id=1 AND revision=? AND pending=?",
+  );
+  function write(
+    revision: number,
+    wasPending: boolean,
+    pending: boolean,
+    message?: ChatMessage,
+    preview?: BulkPreview,
+  ) {
+    transaction(db, () => {
+      if (
+        !advance.run(Number(pending), JSON.stringify(preview) ?? null, revision, Number(wasPending))
+          .changes
+      )
+        throw new ChatConflict();
+      if (message) insertMessage(db, message);
+      else db.exec("DELETE FROM messages");
     });
   }
-
-  // Tool calls may already have changed tasks. Never replay an interrupted turn.
-  if (state.pending) {
-    appendReply(interruptedReply);
-  } else if (state.preview) {
-    // Preview tokens belong to the running planner instance.
-    appendReply("服务已重启，上次改期预览已失效。请重新预览。");
+  function appendReply(
+    revision: number,
+    wasPending: boolean,
+    content: string,
+    preview?: BulkPreview,
+    question?: ChatQuestion,
+  ) {
+    write(
+      revision,
+      wasPending,
+      false,
+      { role: "assistant", content, ...(question && { question }) },
+      preview,
+    );
   }
-  return { read: () => state, save, appendReply };
+  return {
+    state: () => chatState(db),
+    read: () => transaction(db, () => readConversation(db), "DEFERRED"),
+    lastQuestion: () => readMessages(db, 1)[0]?.question,
+    context: () => recentContext(readMessages(db, 100)),
+    begin: (revision: number, content: string) =>
+      write(revision, false, true, { role: "user", content }),
+    clear: (revision: number) => write(revision, false, false),
+    appendReply,
+    recover() {
+      const state = chatState(db);
+      // A committed tool action must never be replayed on restart.
+      if (state.pending) appendReply(state.revision, true, interruptedReply);
+      else if (state.preview)
+        appendReply(state.revision, false, "服务已重启，上次改期预览已失效。请重新预览。");
+    },
+  };
 }
 
 // Retain the complete transcript on disk. Send a bounded suffix to the model.

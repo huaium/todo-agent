@@ -7,14 +7,23 @@ import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { ChatMessage } from "../shared/chat.ts";
 import { createApp } from "./app.ts";
-import { createJsonTaskStore } from "./task-store.ts";
+import { createTaskStore } from "./task-store.ts";
+import { openDatabase } from "./database.ts";
+import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
 
-async function startTestApp(t: TestContext, reply?: (messages: ChatMessage[]) => Promise<string>) {
+async function startTestApp(
+  t: TestContext,
+  reply?: (messages: ChatMessage[]) => Promise<string>,
+  legacy?: unknown,
+) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const filename = join(directory, "tasks.json");
-  const app = createApp({ tasks: createJsonTaskStore(filename), reply });
+  if (legacy) await writeFile(join(directory, "tasks.json"), JSON.stringify(legacy));
+  const db = openDatabase(directory);
+  t.after(() => db.close());
+  const store = createTaskStore(db);
+  const app = createApp({ tasks: store, chat: openConversation(db), reply });
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
@@ -33,7 +42,7 @@ async function startTestApp(t: TestContext, reply?: (messages: ChatMessage[]) =>
     };
   }
 
-  return { request, filename, port };
+  return { request, store, port, directory };
 }
 
 test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
@@ -67,8 +76,8 @@ test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
 });
 
 test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单", async (t) => {
-  const { request, port, filename } = await startTestApp(t);
-  const tools = taskTools(port, createJsonTaskStore(filename));
+  const { request, port, store } = await startTestApp(t);
+  const tools = taskTools(port, store);
   const execute = async (name: string, args: unknown) =>
     (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
   await execute("createTask", { title: "买牛奶" });
@@ -79,24 +88,22 @@ test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单",
   assert.deepEqual(await execute("listTasks", {}), [task]);
   assert.deepEqual(await execute("listTasks", { display: true }), { reply: "· 买牛奶（待办）" });
   await execute("updateTask", { id: task.id, changes: { done: true } });
-  assert.equal(createJsonTaskStore(filename).list()[0].done, true);
+  assert.equal(store.list()[0].done, true);
   await execute("deleteTask", { id: task.id });
   assert.deepEqual(await execute("listTasks", {}), []);
 });
 
 test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {
-  const { request, filename } = await startTestApp(t);
   const first = { id: "a", title: "买牛奶", done: false, priority: 1 };
   const second = { id: "b", title: "取快递", done: false };
-  await writeFile(filename, JSON.stringify([first, second]));
+  const { request, store } = await startTestApp(t, undefined, [first, second]);
 
   assert.equal((await request("PATCH", "/api/tasks/a", { done: true })).status, 200);
-  assert.deepEqual(createJsonTaskStore(filename).list(), [{ ...first, done: true }, second]);
+  assert.deepEqual(store.list(), [{ ...first, done: true }, second]);
 });
 
 test("小明的清单操作和稍后提醒与规划界面共享数据", async (t) => {
-  const { port, filename } = await startTestApp(t);
-  const store = createJsonTaskStore(filename);
+  const { port, store } = await startTestApp(t);
   const tools = taskTools(port, store);
   const run = async (name: string, args: object) =>
     (await tools.find((tool) => tool.name === name)!.execute("planner-test", args)).details;
@@ -117,8 +124,7 @@ test("小明的清单操作和稍后提醒与规划界面共享数据", async (t
 });
 
 test("任务详情持久化，筛选到期子任务并保留已删除父任务的子项", async (t) => {
-  const { request, port, filename } = await startTestApp(t);
-  const store = createJsonTaskStore(filename);
+  const { request, port, store, directory } = await startTestApp(t);
   const tools = taskTools(port, store);
   const run = async (name: string, args: unknown) =>
     (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
@@ -147,7 +153,9 @@ test("任务详情持久化，筛选到期子任务并保留已删除父任务�
   });
   assert.equal((await request("PATCH", "/api/tasks/" + child.id, { effort: "大" })).status, 400);
   await request("DELETE", "/api/tasks/" + parent.id);
-  const [reopened] = createJsonTaskStore(filename).list();
+  const reopenedDb = openDatabase(directory, true);
+  const [reopened] = createTaskStore(reopenedDb).list();
+  reopenedDb.close();
   assert.deepEqual(reopened, { ...child, dueDate: details.dueDate, priority: "高", effort: "小" });
   await run("setTaskDetails", { id: child.id, changes: { dueDate: null } });
   assert.deepEqual(await run("listTasks", { dueDate: details.dueDate }), []);
@@ -173,8 +181,7 @@ test("聊天 API 只将有效的完整对话传给智能体，并返回其回复
 });
 
 test("持久对话拒绝旧版本的更改，清空对话保留任务", async (t) => {
-  const { request, filename } = await startTestApp(t);
-  const store = createJsonTaskStore(filename);
+  const { request, store } = await startTestApp(t);
   store.create("保留任务");
   const empty = { revision: 0, messages: [], pending: false };
   assert.deepEqual((await request("GET", "/api/chat")).body, empty);
@@ -195,7 +202,7 @@ test(
   "持久对话完成后可重新读取，重复提交旧请求只创建一个任务",
   { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
   async (t) => {
-    const { request, filename } = await startTestApp(t);
+    const { request, store } = await startTestApp(t);
     const command = { action: "send", revision: 0, text: "添加任务「整理收据」。" };
     const [a, b] = await Promise.all([
       request("POST", "/api/chat", command),
@@ -210,7 +217,6 @@ test(
     );
     assert.equal(saved.messages[0].content, command.text);
     assert.match(saved.messages[1].content, /整理收据/);
-    const store = createJsonTaskStore(filename);
     assert.deepEqual(
       store.list().map((t) => t.title),
       ["整理收据"],
@@ -231,8 +237,7 @@ test(
   },
   async (t) => {
     assert.ok(process.env.DEEPSEEK_API_KEY, "实时测试需要 DEEPSEEK_API_KEY");
-    const { request, filename } = await startTestApp(t);
-    const store = createJsonTaskStore(filename);
+    const { request, store } = await startTestApp(t);
     const keep = store.create("买牛奶");
     store.create("取快递");
     const response = await request("POST", "/api/chat", {
@@ -240,7 +245,7 @@ test(
     });
     assert.equal(response.status, 200);
     assert.match(response.body.reply, /取快递/u);
-    assert.deepEqual(createJsonTaskStore(filename).list(), [keep]);
+    assert.deepEqual(store.list(), [keep]);
   },
 );
 
@@ -248,8 +253,7 @@ test(
   "小明按当前筛选预览批量改期，点击确认才写入",
   { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
   async (t) => {
-    const { request, filename } = await startTestApp(t);
-    const store = createJsonTaskStore(filename);
+    const { request, store } = await startTestApp(t);
     const a = store.create("买水果");
     const b = store.create("买牛奶");
     const c = store.create("写报告");
@@ -279,7 +283,7 @@ test(
   "小明建立每周五的任务，从原任务 API 完成后只生成一个带提醒的下周任务",
   { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
   async (t) => {
-    const { request, filename } = await startTestApp(t);
+    const { request, store } = await startTestApp(t);
     await request("POST", "/api/planner/timezone", { timeZone: "Asia/Singapore" });
     const response = await request("POST", "/api/chat", {
       messages: [
@@ -291,7 +295,6 @@ test(
       ],
     });
     assert.equal(response.status, 200);
-    const store = createJsonTaskStore(filename);
     const [first] = store.list();
     assert.equal(first.repeat, "weekly");
     assert.equal(first.reminder, "2030-01-03T15:00");
