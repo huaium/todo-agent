@@ -9,6 +9,8 @@ export { plannerChanges };
 import type { BulkPreview } from "../shared/chat.ts";
 
 const listName = z.strictObject({ name: z.string().trim().min(1).max(80) });
+const binEntry = z.strictObject({ deletedAt: z.number().int() });
+const binEntryMissing = { error: "这条回收站记录已失效，请刷新后重试。" };
 export function bulkPreviews(store: TaskStore) {
   const pending = new Map<
     string,
@@ -53,9 +55,14 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
   router.get("/", (_req, res) => res.json(store.snapshot()));
   router.get("/bin", (_req, res) => res.set("Cache-Control", "no-store").json(store.bin()));
   router.post("/bin/:id/restore", (req, res) => {
-    const { deletedAt } = z.strictObject({ deletedAt: z.number().int() }).parse(req.body);
-    if (!store.restore(req.params.id, deletedAt))
-      return res.status(404).json({ error: "这条任务已恢复、已过期或已再次删除，请刷新回收站。" });
+    const { deletedAt } = binEntry.parse(req.body);
+    if (!store.restore(req.params.id, deletedAt)) return res.status(404).json(binEntryMissing);
+    res.sendStatus(204);
+  });
+  router.delete("/bin/:id", (req, res) => {
+    const { deletedAt } = binEntry.parse(req.body);
+    if (!store.deleteBinItem(req.params.id, deletedAt))
+      return res.status(404).json(binEntryMissing);
     res.sendStatus(204);
   });
   router.post("/timezone", (req, res) => {

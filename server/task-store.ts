@@ -24,6 +24,7 @@ export interface TaskStore {
   remove(id: string): boolean;
   bin(): BinItem[];
   restore(id: string, deletedAt: number): boolean;
+  deleteBinItem(id: string, deletedAt: number): boolean;
   purgeExpired(): void;
   reorder(previous: string[], ordered: string[]): boolean;
   editList(id: string | null, name: string | null): string;
@@ -255,6 +256,12 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
           deletedAt: Number(row.deleted_at),
           expiresAt: Number(row.deleted_at) + binRetentionMs,
         }));
+    },
+    deleteBinItem(id, deletedAt) {
+      return (
+        db.prepare("DELETE FROM task_bin WHERE id=? AND deleted_at=?").run(id, deletedAt)
+          .changes === 1
+      );
     },
     restore(id, deletedAt) {
       return transaction(db, () => {

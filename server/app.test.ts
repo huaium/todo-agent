@@ -67,6 +67,30 @@ test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
   assert.deepEqual((await request("GET", collection)).body, []);
 });
 
+test("permanent deletion removes only the selected bin entry", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const a = store.create("周报"),
+    b = store.create("周报"),
+    active = store.create("保留");
+  store.remove(a.id);
+  store.remove(b.id);
+  const entry = store.bin().find((item) => item.id === a.id)!;
+  const collection = "/api/planner/bin",
+    path = collection + "/" + a.id;
+  const body = { deletedAt: entry.deletedAt };
+  assert.equal((await request("DELETE", collection, body)).status, 404);
+  assert.equal((await request("DELETE", path)).status, 400);
+  assert.equal((await request("DELETE", path, { deletedAt: entry.deletedAt - 1 })).status, 404);
+  assert.equal(store.bin().length, 2);
+  assert.equal((await request("DELETE", path, body)).status, 204);
+  assert.equal((await request("DELETE", path, body)).status, 404);
+  assert.equal((await request("POST", path + "/restore", body)).status, 404);
+  const [other] = store.bin();
+  assert.equal(other.id, b.id);
+  assert.ok(store.restore(other.id, other.deletedAt));
+  assert.deepEqual(store.list(), [active, b]);
+});
+
 test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
   const { request } = await startTestApp(t);
   assert.equal((await request("POST", "/api/tasks", { title: " " })).status, 400);

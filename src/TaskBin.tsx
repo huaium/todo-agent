@@ -3,6 +3,7 @@ import { Button } from "@heroui/react";
 import type { BinItem, Planner } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
+import { ConfirmAction } from "./PlannerControls.tsx";
 
 interface Props {
   items: BinItem[] | null;
@@ -14,6 +15,10 @@ interface Props {
 export function TaskBin({ items, planner, query, act }: Props) {
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<TaskNotice>();
+  const [selected, setSelected] = useState<BinItem | null>(null);
+  const target =
+    selected &&
+    items?.find((item) => item.id === selected.id && item.deletedAt === selected.deletedAt);
   const format = new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -74,6 +79,15 @@ export function TaskBin({ items, planner, query, act }: Props) {
                   >
                     恢复
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="danger-soft"
+                    aria-label={"永久删除" + item.title}
+                    isDisabled={restoring !== null}
+                    onPress={() => setSelected(item)}
+                  >
+                    永久删除
+                  </Button>
                 </div>
               </li>
             ))}
@@ -81,6 +95,22 @@ export function TaskBin({ items, planner, query, act }: Props) {
         </section>
       )}
       <TaskFeedback notice={notice} />
+      {target && (
+        <ConfirmAction
+          open
+          title={`永久删除「${target.title}」？`}
+          consequence="永久删除后，这条任务将无法恢复。"
+          action="永久删除"
+          close={() => setSelected(null)}
+          confirm={async () => {
+            const deleted = await act("planner/bin/" + encodeURIComponent(target.id), "DELETE", {
+              deletedAt: target.deletedAt,
+            });
+            if (deleted) setNotice({ text: `已永久删除「${target.title}」。` });
+            return deleted;
+          }}
+        />
+      )}
     </div>
   );
 }
