@@ -1,6 +1,7 @@
 .planner-app {
+  --rail-width: clamp(160px, 15vw, 220px);
   display: grid;
-  grid-template-columns: clamp(160px, 15vw, 220px) minmax(0, 9fr) minmax(0, 11fr);
+  grid-template-columns: var(--rail-width) minmax(0, 1fr) clamp(290px, 35vw, 560px);
   height: 100dvh;
   overflow: hidden;
   font-size: 0.9375rem;
@@ -505,7 +506,7 @@
     width: 26px;
   }
   .planner-app {
-    grid-template-columns: 150px minmax(290px, 9fr) minmax(0, 11fr);
+    --rail-width: 150px;
   }
   .rail {
     padding-inline: 8px;
