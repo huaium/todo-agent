@@ -253,6 +253,38 @@
 .task-row {
   min-height: 62px;
 }
+.sortable-row {
+  position: relative;
+  border-radius: var(--radius);
+}
+.sortable-row:focus-visible {
+  outline: 2px solid var(--focus);
+}
+.sortable-row[data-moving] {
+  background: var(--surface);
+  box-shadow:
+    var(--surface-shadow),
+    0 0 0 1px var(--accent);
+}
+.reorder-grip {
+  display: grid;
+  place-items: center;
+  flex: 0 0 24px;
+  min-height: 44px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.reorder-grip:active {
+  color: var(--accent);
+  cursor: grabbing;
+}
+@media (pointer: coarse) {
+  .reorder-grip {
+    flex-basis: 44px;
+  }
+}
 .bin-row-text {
   overflow-wrap: anywhere;
 }

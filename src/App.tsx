@@ -18,10 +18,23 @@ const views = [
   ["done", "已完成", "✓"],
 ] as const;
 
+const dateOrderKey = "planner-date-order";
+function readManualDates() {
+  try {
+    return localStorage.getItem(dateOrderKey) === "manual";
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "SecurityError") return false;
+    throw error;
+  }
+}
+
 export default function App() {
   const [view, setView] = useState("today");
   const showBin = view === "bin";
-  const { data, bin, ready, error, setError, act, changed, today, due } = usePlanner(showBin);
+  const { data, bin, ready, error, setError, act, changed, refresh, today, due } =
+    usePlanner(showBin);
+  const [manualDates, setManualDates] = useState(readManualDates);
+  const dateView = view === "today" || view === "upcoming";
   const [pane, setPane] = useState("list");
   const [selected, setSelected] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -79,7 +92,7 @@ export default function App() {
           .toLocaleLowerCase()
           .includes(query.trim().toLocaleLowerCase())),
   );
-  if (view === "today" || view === "upcoming")
+  if (dateView && !manualDates)
     items.sort(
       (a, b) =>
         (a.dueDate ?? "").localeCompare(b.dueDate ?? "") ||
@@ -98,6 +111,20 @@ export default function App() {
   function open(id: string) {
     setSelected(id);
     setPane("editor");
+  }
+  function toggleDateOrder() {
+    setManualDates(!manualDates);
+    try {
+      localStorage.setItem(dateOrderKey, manualDates ? "date" : "manual");
+    } catch (error) {
+      if (
+        !(
+          error instanceof DOMException &&
+          ["SecurityError", "QuotaExceededError"].includes(error.name)
+        )
+      )
+        throw error;
+    }
   }
   function back() {
     setSelected(null);
@@ -464,6 +491,16 @@ export default function App() {
                   </Dropdown.Popover>
                 </Dropdown>
               )}
+              {dateView && (
+                <Button
+                  size="sm"
+                  variant={manualDates ? "secondary" : "tertiary"}
+                  aria-pressed={manualDates}
+                  onPress={toggleDateOrder}
+                >
+                  手动排序
+                </Button>
+              )}
             </div>
             <form className="capture" onSubmit={create}>
               <Button
@@ -495,6 +532,8 @@ export default function App() {
             {ready ? (
               <TaskList
                 items={items}
+                manual={!dateView || manualDates}
+                refresh={refresh}
                 data={data}
                 view={view}
                 today={today}

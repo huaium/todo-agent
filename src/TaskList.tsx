@@ -3,16 +3,29 @@ import { Button, Checkbox, Dropdown, Label } from "@heroui/react";
 import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
+import { ReorderTasks, type RowControls } from "./ReorderTasks.tsx";
 interface Props {
   items: PlannerTask[];
   data: Planner;
   view: string;
+  manual: boolean;
+  refresh(): Promise<void>;
   today: string;
   open(id: string): void;
   requestDelete(id: string): void;
   act: Action;
 }
-export function TaskList({ items, data, view, today, open, requestDelete, act }: Props) {
+export function TaskList({
+  items,
+  data,
+  view,
+  manual,
+  refresh,
+  today,
+  open,
+  requestDelete,
+  act,
+}: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<TaskNotice>();
   const groups = new Map<string, PlannerTask[]>();
@@ -51,7 +64,12 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
       byParent.set(t.parentId, siblings);
     }
   }
-  function render(task: PlannerTask, ancestors: Set<string>) {
+  async function saveOrder(previous: string[], ordered: string[], task: PlannerTask) {
+    if (await act("planner/tasks/order", "POST", { previous, ordered }))
+      setConfirmation({ text: `「${task.title}」已移至第 ${ordered.indexOf(task.id) + 1} 位。` });
+    else await refresh();
+  }
+  function render(task: PlannerTask, ancestors: Set<string>, controls?: RowControls) {
     const children = (byParent.get(task.id) ?? []).filter((t) => !ancestors.has(t.id));
     const list = data.lists.find((l) => l.id === (task.listId ?? inbox));
     const meta = [
@@ -60,8 +78,9 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
       ...(task.tags ?? []).map((tag) => "#" + tag),
     ].filter(Boolean);
     return (
-      <li key={task.id}>
+      <>
         <div className={"task-row" + (task.done ? " completed" : "")}>
+          {controls?.handle}
           <Checkbox
             className="circle-check"
             isSelected={task.done}
@@ -125,6 +144,16 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
                 <Dropdown.Item id="edit" onAction={() => open(task.id)}>
                   编辑详情
                 </Dropdown.Item>
+                {controls?.moveUp && (
+                  <Dropdown.Item id="move-up" onAction={controls.moveUp}>
+                    上移一位
+                  </Dropdown.Item>
+                )}
+                {controls?.moveDown && (
+                  <Dropdown.Item id="move-down" onAction={controls.moveDown}>
+                    下移一位
+                  </Dropdown.Item>
+                )}
                 <Dropdown.Item
                   id="delete"
                   textValue="删除任务"
@@ -138,11 +167,17 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
           </Dropdown>
         </div>
         {expanded.has(task.id) && children.length > 0 && (
-          <ul className="nested">
-            {children.map((t) => render(t, new Set([...ancestors, task.id])))}
-          </ul>
+          <ReorderTasks
+            className="nested"
+            rows={children}
+            manual={manual}
+            save={saveOrder}
+            render={(child, childControls) =>
+              render(child, new Set([...ancestors, task.id]), childControls)
+            }
+          />
         )}
-      </li>
+      </>
     );
   }
   return (
@@ -161,11 +196,13 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
             <h2>
               {key} <small>{rows.length}</small>
             </h2>
-            <ul>
-              {rows
-                .filter((t) => !t.parentId || !ids.has(t.parentId))
-                .map((t) => render(t, new Set()))}
-            </ul>
+            <ReorderTasks
+              key={view}
+              rows={rows.filter((t) => !t.parentId || !ids.has(t.parentId))}
+              manual={manual}
+              save={saveOrder}
+              render={(task, controls) => render(task, new Set(), controls)}
+            />
           </section>
         );
       })}
