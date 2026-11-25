@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Button, Checkbox, Dropdown } from "@heroui/react";
+import { Button, Checkbox, Dropdown, Label } from "@heroui/react";
 import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 interface Props {
@@ -129,8 +129,13 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
                 <Dropdown.Item id="edit" onAction={() => open(task.id)}>
                   编辑详情
                 </Dropdown.Item>
-                <Dropdown.Item id="delete" variant="danger" onAction={() => requestDelete(task.id)}>
-                  删除任务
+                <Dropdown.Item
+                  id="delete"
+                  textValue="删除任务"
+                  variant="danger"
+                  onAction={() => requestDelete(task.id)}
+                >
+                  <Label>删除任务</Label>
                 </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown.Popover>
