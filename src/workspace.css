@@ -118,6 +118,9 @@
   width: fit-content;
   margin-bottom: 12px;
 }
+.rail-foot small {
+  padding-inline-start: calc(var(--spacing) * 3);
+}
 .rail-foot small,
 .metadata,
 .task-row time,
