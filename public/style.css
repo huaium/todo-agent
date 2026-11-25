@@ -512,6 +512,12 @@ textarea {
 .pane-head strong {
   font-size: 16px;
 }
+.clear-chat {
+  margin-left: auto;
+  font-size: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
 .scroll {
   overflow: auto;
   flex: 1;

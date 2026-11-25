@@ -1,81 +1,86 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChatHistory } from "./ChatHistory.tsx";
-import { requestReply } from "./chat-client.ts";
-import type { ChatMessage, BulkPreview, ViewContext } from "../shared/chat.ts";
-import type { Action } from "./planner-client.ts";
+import { useConversation } from "./chat-client.ts";
+import type { ChatMessage, ViewContext } from "../shared/chat.ts";
 export function ChatPanel({
   context,
   changed,
-  act,
   close,
 }: {
   context: ViewContext;
   changed(): Promise<void>;
-  act: Action;
   close(): void;
 }) {
-  const [history, setHistory] = useState<ChatMessage[]>([]);
+  const { state, active, error, reload, submit } = useConversation();
   const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [preview, setPreview] = useState<BulkPreview>();
+  const busy = !state || !!active || state.pending;
+  const sending = active?.action === "send" && active.revision === state?.revision;
+  const history: ChatMessage[] = sending
+    ? [...state!.messages, { role: "user", content: active.text }]
+    : (state?.messages ?? []);
+  const preview = !sending && state?.preview;
   const input = useRef<HTMLTextAreaElement>(null);
+  const seenRevision = useRef<number>(undefined);
+  useEffect(() => {
+    if (!state || seenRevision.current === state.revision) return;
+    const firstLoad = seenRevision.current === undefined;
+    seenRevision.current = state.revision;
+    if (!firstLoad && !state.pending) void changed();
+  }, [state, changed]);
   async function send(text: string) {
-    if (!text.trim() || busy) return;
-    setBusy(true);
-    setError("");
-    setPreview(undefined);
+    if (!text.trim() || !state || busy) return;
     setDraft("");
-    const outgoing: ChatMessage[] = [...history, { role: "user", content: text.trim() }];
-    setHistory(outgoing);
-    try {
-      const result = await requestReply(outgoing, context);
-      setHistory([...outgoing, { role: "assistant", content: result.reply }]);
-      setPreview(result.preview);
-    } catch (e) {
-      setHistory(history);
-      setDraft(text);
-      setError(e instanceof Error ? e.message : "发送失败。");
-    } finally {
-      await changed();
-      setBusy(false);
-      requestAnimationFrame(() => input.current?.focus());
-    }
+    const accepted = await submit({
+      action: "send",
+      text: text.trim(),
+      context,
+      revision: state.revision,
+    });
+    if (!accepted) setDraft(text);
+    if (input.current?.offsetParent) input.current.focus();
   }
-  async function confirm() {
-    if (!preview || busy) return;
-    setBusy(true);
-    if (await act("planner/reschedule/" + preview.token, "POST"))
-      setHistory((h) => [
-        ...h,
-        {
-          role: "assistant",
-          content: `已将 ${preview.titles.length} 条任务改到 ${preview.date}。`,
-        },
-      ]);
-    setPreview(undefined);
-    setBusy(false);
+  async function applyPreview(action: "confirm" | "cancel") {
+    if (!preview || !state || busy) return;
+    await submit({ action, token: preview.token, revision: state.revision });
   }
   return (
     <aside className="chat-pane" aria-label="小明对话">
       <div className="pane-head">
         <img src="/logo.png" alt="" />
         <strong>小明</strong>
+        {!!state?.messages.length && (
+          <button
+            className="clear-chat"
+            disabled={busy}
+            onClick={() => {
+              if (window.confirm("清空这段对话？任务会保留。"))
+                void submit({ action: "clear", revision: state.revision });
+            }}
+          >
+            清空对话
+          </button>
+        )}
         <button className="mobile-only" onClick={close}>
           返回清单
         </button>
       </div>
-      <ChatHistory messages={history} pending={busy} onSelectPrompt={send} />
+      {state ? (
+        <ChatHistory messages={history} pending={sending || state.pending} onSelectPrompt={send} />
+      ) : (
+        <div className="scroll thread" role="status">
+          {error ? <button onClick={reload}>重新加载对话</button> : "正在读取对话…"}
+        </div>
+      )}
       {preview && (
         <div className="preview">
           <strong>批量改期 · {preview.titles.length} 条</strong>
           <p>
             {preview.date} · {preview.titles.join("、")}
           </p>
-          <button disabled={busy} onClick={confirm}>
+          <button disabled={busy} onClick={() => applyPreview("confirm")}>
             确认改期
           </button>{" "}
-          <button disabled={busy} onClick={() => setPreview(undefined)}>
+          <button disabled={busy} onClick={() => applyPreview("cancel")}>
             取消
           </button>
         </div>
@@ -90,6 +95,7 @@ export function ChatPanel({
         {error && <p role="alert">{error}</p>}
         <textarea
           ref={input}
+          maxLength={16000}
           value={draft}
           readOnly={busy}
           aria-label="消息"

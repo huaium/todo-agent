@@ -421,7 +421,6 @@ export default function App() {
           selectedId: selectedTask?.id ?? null,
         }}
         changed={changed}
-        act={act}
         close={() => setPane(selectedTask ? "editor" : "list")}
       />
     </div>
