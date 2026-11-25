@@ -4,6 +4,8 @@ import type { ChatMessage } from "../shared/chat.ts";
 import type { Task } from "../shared/task.ts";
 import { chatModel, deepseek } from "./model.ts";
 import type { TaskTool } from "./task-tools.ts";
+import { localMinute, type PersonalList } from "../shared/planner.ts";
+import type { ViewContext } from "../shared/chat.ts";
 
 const instructions = `你是小明，帮助用户用中文管理本地待办清单。根据整段对话理解本轮意图。
 每轮都附有最新清单。用其中的 ID 直接调用本轮需要的工具，不要猜测 ID。
@@ -15,7 +17,10 @@ const instructions = `你是小明，帮助用户用中文管理本地待办清�
 用户单独询问某天有哪些任务到期时，直接调用 showTasksDue 展示清单。
 涉及其他条件时，用 listTasks 筛选，只报告满足条件的条目。子任务的截止日期独立于父任务。
 创建带详情的任务时，用新建任务返回的 ID 设置详情。同名子任务用父任务区分。
-删除父任务只删除这一条，子任务仍保留。不要声称已设置通知。`;
+删除父任务只删除这一条，子任务仍保留。提醒可在应用打开时送达。
+界面上下文中的 visibleIds 是当前筛选结果，“这些”指其中未完成的任务。selectedId 是选中的任务。
+涉及多个任务的改期只调用 previewReschedule，列出目标等待界面确认，不逐条写入。
+设置重复、截止日期和提醒时，将这些关联字段一次交给 setTaskDetails。`;
 
 function historyMessage({ role, content }: ChatMessage): Message {
   const timestamp = Date.now();
@@ -44,10 +49,14 @@ export async function reply(
   history: ChatMessage[],
   tools: TaskTool[],
   currentTasks: Task[],
+  planner?: { view?: ViewContext; lists: PersonalList[]; timeZone: string | null },
 ): Promise<string> {
   if (!process.env.DEEPSEEK_API_KEY)
     return "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。";
-  const today = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" }).format(new Date());
+  const today = localMinute(
+    new Date(),
+    planner?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+  ).slice(0, 10);
   const writes = new Set(tools.filter((tool) => tool.writes).map((tool) => tool.name));
   const changes: string[] = [];
   let answer = "";
@@ -57,7 +66,7 @@ export async function reply(
       model: chatModel,
       tools,
       thinkingLevel: "off",
-      systemPrompt: `${instructions}\n今天是 ${today}（服务器本地日期）。\n当前任务数据（JSON）：\n${JSON.stringify(currentTasks)}`,
+      systemPrompt: `${instructions}\n今天是 ${today}。工作区：${JSON.stringify(planner)}\n当前任务数据（JSON）：\n${JSON.stringify(currentTasks)}`,
     },
     toolExecution: "sequential",
     streamFn: (_model, context, options) =>

@@ -4,6 +4,7 @@ import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
 import { detailsSchema, setDetails } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
+import type { BulkPreview } from "../shared/chat.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
@@ -37,7 +38,11 @@ export function taskTool<S extends z.ZodObject>(
   };
 }
 
-export function taskTools(port: number, store: TaskStore): TaskTool[] {
+export function taskTools(
+  port: number,
+  store: TaskStore,
+  preview?: (ids: string[], date: string) => BulkPreview,
+): TaskTool[] {
   const collection = `http://127.0.0.1:${port}/api/tasks`;
   async function request(method: string, id?: string, body?: unknown) {
     const url = id === undefined ? collection : `${collection}/${encodeURIComponent(id)}`;
@@ -54,6 +59,21 @@ export function taskTools(port: number, store: TaskStore): TaskTool[] {
   }
   const id = z.string().min(1).describe("从任务清单读取的任务 ID");
   return [
+    ...(preview
+      ? [
+          taskTool(
+            "previewReschedule",
+            "批量改期必须先预览，用户点击确认后才保存。",
+            z.strictObject({ ids: z.array(id).min(1), date: z.iso.date() }),
+            async ({ ids, date }) => {
+              const result = preview(ids, date);
+              return {
+                reply: `请确认将以下 ${result.titles.length} 条任务改到 ${date}：\n${result.titles.join("\n")}`,
+              };
+            },
+          ),
+        ]
+      : []),
     taskTool(
       "listTasks",
       "读取清单。查找 ID 时省略 display，只需向用户展示清单时传 display=true。",
@@ -101,7 +121,7 @@ export function taskTools(port: number, store: TaskStore): TaskTool[] {
     ),
     taskTool(
       "setTaskDetails",
-      "为已有任务设置截止日期、优先级、工作量或父任务 ID。创建子任务后设置其 parentId。传 null 可清除单个字段。",
+      "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。批量改期使用 previewReschedule。",
       z.strictObject({ id, changes: detailsSchema }),
       async ({ id, changes }) => setDetails(store, id, changes),
       true,

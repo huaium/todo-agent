@@ -169,3 +169,34 @@ test(
     assert.deepEqual(createJsonTaskStore(filename).list(), [keep]);
   },
 );
+
+test(
+  "小明按当前筛选预览批量改期，点击确认才写入",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, filename } = await startTestApp(t);
+    const store = createJsonTaskStore(filename);
+    const a = store.create("买水果");
+    const b = store.create("买牛奶");
+    const c = store.create("写报告");
+    const response = await request("POST", "/api/chat", {
+      messages: [{ role: "user", content: "把这些任务都改到 2027-03-06。" }],
+      context: { view: "购物", visibleIds: [a.id, b.id], selectedId: null },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual([...response.body.preview.titles].sort(), [a.title, b.title].sort());
+    assert.ok(store.list().every((task) => !task.dueDate));
+    assert.equal(
+      (await request("POST", "/api/planner/reschedule/" + response.body.preview.token)).status,
+      204,
+    );
+    assert.deepEqual(
+      store.list().map((task) => [task.id, task.dueDate]),
+      [
+        [a.id, "2027-03-06"],
+        [b.id, "2027-03-06"],
+        [c.id, undefined],
+      ],
+    );
+  },
+);
