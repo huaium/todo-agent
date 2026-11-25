@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   inbox,
   offsetDate,
@@ -17,6 +17,12 @@ interface Props {
 }
 export function TaskList({ items, data, view, today, open, act }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [confirmation, setConfirmation] = useState<{ text: string }>();
+  useEffect(() => {
+    if (!confirmation) return;
+    const timer = window.setTimeout(() => setConfirmation(undefined), 2600);
+    return () => window.clearTimeout(timer);
+  }, [confirmation]);
   const groups = new Map<string, PlannerTask[]>();
   for (const task of items) {
     const group =
@@ -41,6 +47,10 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
         : Number(a === "已完成") - Number(b === "已完成"),
   );
   const patch = (id: string, changes: object) => act("planner/tasks/" + id, "PATCH", { changes });
+  async function toggleDone(task: PlannerTask) {
+    if (await patch(task.id, { done: !task.done }))
+      setConfirmation({ text: (task.done ? "已重新打开「" : "已完成「") + task.title + "」" });
+  }
   const byParent = new Map<string, PlannerTask[]>();
   for (const t of data.tasks) {
     if (t.parentId) {
@@ -65,7 +75,7 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
             role="checkbox"
             aria-checked={task.done}
             aria-label={(task.done ? "重新打开" : "完成") + task.title}
-            onClick={() => patch(task.id, { done: !task.done })}
+            onClick={() => void toggleDone(task)}
           />
           <div className="row-text">
             <button className="title-button" onClick={() => open(task.id)}>
@@ -123,15 +133,14 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
       </li>
     );
   }
-  if (!items.length)
-    return (
-      <div className="empty-list">
-        <span aria-hidden="true">✓</span>
-        <h3>{view === "today" ? "今天没有到期任务" : "没有符合条件的任务"}</h3>
-      </div>
-    );
   return (
     <>
+      {items.length === 0 && (
+        <div className="empty-list">
+          <span aria-hidden="true">✓</span>
+          <h3>{view === "today" ? "今天没有到期任务" : "没有符合条件的任务"}</h3>
+        </div>
+      )}
       {order.map((key) => {
         const rows = groups.get(key)!;
         const ids = new Set(rows.map((t) => t.id));
@@ -148,6 +157,9 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
           </section>
         );
       })}
+      <div className="completion-status" role="status">
+        {confirmation && <span>{confirmation.text}</span>}
+      </div>
     </>
   );
 }

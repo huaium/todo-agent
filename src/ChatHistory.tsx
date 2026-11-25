@@ -11,12 +11,21 @@ interface ChatHistoryProps {
 
 export function ChatHistory({ messages, pending, onSelectPrompt }: ChatHistoryProps) {
   const viewport = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
   useEffect(() => {
-    if (viewport.current) viewport.current.scrollTop = viewport.current.scrollHeight;
+    const el = viewport.current;
+    if (el && (following.current || messages.at(-1)?.role === "user"))
+      el.scrollTop = el.scrollHeight;
   }, [messages, pending]);
 
   return (
-    <div className="scroll" ref={viewport}>
+    <div
+      className="scroll"
+      ref={viewport}
+      onScroll={({ currentTarget: el }) => {
+        following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+      }}
+    >
       {messages.length === 0 ? (
         <section className="welcome">
           <img src="/logo.png" alt="" />
@@ -38,7 +47,16 @@ export function ChatHistory({ messages, pending, onSelectPrompt }: ChatHistoryPr
               <div>{message.content}</div>
             </div>
           ))}
-          {pending && <p role="status">正在回复…</p>}
+          {pending && (
+            <p className="reply-pending" role="status">
+              <span aria-hidden="true">
+                <i />
+                <i />
+                <i />
+              </span>
+              正在回复…
+            </p>
+          )}
         </div>
       )}
     </div>

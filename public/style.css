@@ -698,6 +698,121 @@ textarea {
   gap: 6px;
   margin-top: 8px;
 }
+.completion-status {
+  position: sticky;
+  bottom: 6px;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.completion-status span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 8px 14px;
+  border-radius: 9px;
+  background: #214b3a;
+  color: white;
+  box-shadow: 0 3px 12px #17263a20;
+}
+.reply-pending,
+.reply-pending span {
+  display: flex;
+  align-items: center;
+}
+.reply-pending {
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.reply-pending span {
+  gap: 3px;
+}
+.reply-pending i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--blue);
+}
+@keyframes appear {
+  from {
+    opacity: 0;
+    transform: translate(var(--enter-x, 0px), var(--enter-y, 5px));
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0);
+  }
+}
+@keyframes thinking {
+  0%,
+  60%,
+  100% {
+    opacity: 0.5;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .task-row,
+  .empty-list,
+  .editor,
+  .filters,
+  .row-menu[open] > div,
+  .message,
+  .preview,
+  .completion-status span {
+    animation: appear 180ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  }
+  .editor {
+    --enter-x: 9px;
+    --enter-y: 0px;
+  }
+  .nav-views button,
+  .circle-check::before,
+  .star,
+  .examples button,
+  .examples span,
+  .composer button {
+    transition:
+      background-color 140ms,
+      color 140ms,
+      transform 140ms;
+  }
+  .star:active,
+  .circle-check:active::before,
+  .composer button:active:enabled {
+    transform: scale(0.88);
+  }
+  .examples button:focus-visible span,
+  .examples button:hover span {
+    transform: translate(2px, -2px);
+  }
+  .reply-pending i {
+    animation: thinking 1050ms ease-in-out infinite;
+  }
+  .reply-pending i:nth-child(2) {
+    animation-delay: 120ms;
+  }
+  .reply-pending i:nth-child(3) {
+    animation-delay: 240ms;
+  }
+}
+@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+  .planner-app[data-pane="nav"] .rail,
+  .planner-app[data-pane="chat"] .chat-pane {
+    --enter-x: 12px;
+    --enter-y: 0px;
+    animation: appear 200ms ease-out;
+  }
+  .planner-app[data-pane="nav"] .rail {
+    --enter-x: -12px;
+  }
+}
 .section-top button,
 .child-editor button {
   border: 1px solid var(--line);
