@@ -48,6 +48,10 @@ test("周期完成可重试、保持月末锚点及提醒偏移，仅本次的�
   store.update(feb.id, { done: true });
   assert.equal(store.list()[2].dueDate, "2026-03-31");
   assert.equal(store.list()[2].title, "结算");
+  const march = store.list()[2];
+  store.update(march.id, { reminder: "2026-03-29T11:00" }, "future");
+  store.update(march.id, { done: true });
+  assert.equal(store.list()[3].reminder, "2026-04-28T11:00");
   assert.equal(nextDate("2028-02-29", "yearly", "2031-02-28"), "2032-02-29");
   assert.equal(nextDate("2020-01-03", "weekly", "2026-01-30"), "2026-02-06");
 });

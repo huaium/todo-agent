@@ -130,7 +130,8 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       delete t.notifiedAt;
       delete t.snoozeUntil;
     }
-    if (t.repeat && (!t.dueDate || t.parentId || db.tasks.some((p) => p.parentId === t.id)))
+    const hasSchedule = t.dueDate || (before.seriesId && scope === "one" && t.occurrenceDate);
+    if (t.repeat && (!hasSchedule || t.parentId || db.tasks.some((p) => p.parentId === t.id)))
       fail("重复任务需要截止日期，且必须是独立任务。");
     if (t.repeat && !before.seriesId) {
       t.seriesId = randomUUID();
@@ -146,13 +147,16 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
         series = undefined;
       } else {
         const template: PlannerTask = series.template;
-        const oldDate = template.dueDate;
+        const baseDate = delta.dueDate ?? t.occurrenceDate ?? t.dueDate!;
+        // Keep the reminder offset relative to the occurrence being edited.
+        template.reminder = shiftedReminder(
+          template.reminder,
+          dayDistance(template.dueDate!, baseDate),
+        );
+        template.dueDate = baseDate;
         Object.assign(template, delta);
-        if (delta.dueDate && oldDate && delta.reminder === undefined)
-          template.reminder = shiftedReminder(
-            template.reminder,
-            dayDistance(oldDate, delta.dueDate),
-          );
+        if (delta.reminder && t.dueDate)
+          template.reminder = shiftedReminder(delta.reminder, dayDistance(t.dueDate, baseDate));
         if (delta.repeat) series.frequency = delta.repeat;
         if (delta.dueDate || delta.repeat) {
           series.anchor = t.dueDate!;
@@ -164,6 +168,7 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
       delete t.seriesId;
       delete t.repeat;
       delete t.occurrenceDate;
+      delete t.successorId;
     }
     if (delta.done && !before.done && series && !t.successorId) {
       const today = localMinute(now(), zone(db)).slice(0, 10);
