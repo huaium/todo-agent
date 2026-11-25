@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
-    "build": "esbuild src/main.tsx --bundle --minify --outfile=dist/chat.js && tailwindcss -i src/theme.css -o dist/theme.css --minify",
+    "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && tailwindcss -i src/theme.css -o dist/theme.css --minify",
     "start": "node --env-file-if-exists=.env server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
     "test": "node --test server/*.test.ts",

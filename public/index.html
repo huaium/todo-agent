@@ -4,17 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
-    <script>
-      const appearance = matchMedia("(prefers-color-scheme: dark)");
-      function syncTheme() {
-        const theme = appearance.matches ? "dark" : "light";
-        document.documentElement.dataset.theme = theme;
-        document.documentElement.classList.toggle("dark", appearance.matches);
-        document.documentElement.style.colorScheme = theme;
-      }
-      syncTheme();
-      appearance.addEventListener("change", syncTheme);
-    </script>
+    <script src="/assets/initial-theme.js"></script>
     <link rel="icon" href="/logo.png" />
     <link rel="stylesheet" href="/assets/theme.css" />
     <title>小明智能体 · TokeNow</title>

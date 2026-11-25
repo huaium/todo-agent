@@ -144,6 +144,9 @@ export function createApp({ reply, tasks }: AppDependencies) {
 
   app.use(express.static(resolve("public")));
   app.get("/assets/chat.js", (_req, res) => res.sendFile(resolve("dist/chat.js")));
+  app.get("/assets/initial-theme.js", (_req, res) =>
+    res.sendFile(resolve("dist/initial-theme.js")),
+  );
   app.get("/assets/theme.css", (_req, res) => res.sendFile(resolve("dist/theme.css")));
   return app;
 }

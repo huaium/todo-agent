@@ -6,6 +6,7 @@ import { priorities } from "../shared/task.ts";
 import { TaskList } from "./TaskList.tsx";
 import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
+import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
 
 const views = [
@@ -260,6 +261,7 @@ export default function App() {
           </>
         )}
         <div className="rail-foot">
+          <ThemeControl />
           <Button
             variant="tertiary"
             size="sm"

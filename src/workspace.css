@@ -114,6 +114,9 @@
   margin-top: auto;
   padding: 24px 5px 0;
 }
+.rail-foot > .select {
+  margin-bottom: 12px;
+}
 .rail-foot small,
 .metadata,
 .task-row time,
