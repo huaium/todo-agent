@@ -10,18 +10,11 @@ import { createApp } from "./app.ts";
 import { createJsonTaskStore } from "./task-store.ts";
 import { taskTools } from "./task-tools.ts";
 
-async function startTestApp(t: TestContext) {
+async function startTestApp(t: TestContext, reply?: (messages: ChatMessage[]) => Promise<string>) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = join(directory, "tasks.json");
-  const conversations: ChatMessage[][] = [];
-  const app = createApp({
-    tasks: createJsonTaskStore(filename),
-    async reply(messages) {
-      conversations.push(messages);
-      return "收到";
-    },
-  });
+  const app = createApp({ tasks: createJsonTaskStore(filename), reply });
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
@@ -40,7 +33,7 @@ async function startTestApp(t: TestContext) {
     };
   }
 
-  return { request, conversations, filename, port };
+  return { request, filename, port };
 }
 
 test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
@@ -76,21 +69,19 @@ test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
 test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单", async (t) => {
   const { request, port, filename } = await startTestApp(t);
   const tools = taskTools(port, createJsonTaskStore(filename));
-  const execute = (name: string, args: string) =>
-    tools.find((tool) => tool.definition.function.name === name)!.execute(args);
-  await execute("createTask", JSON.stringify({ title: "买牛奶" }));
+  const execute = async (name: string, args: unknown) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
+  await execute("createTask", { title: "买牛奶" });
   const [task] = (await request("GET", "/api/tasks")).body;
   assert.equal(task.title, "买牛奶");
   assert.ok("error" in Object(await execute("updateTask", "{")));
-  assert.ok(
-    "error" in Object(await execute("updateTask", JSON.stringify({ id: task.id, changes: {} }))),
-  );
-  assert.deepEqual(await execute("listTasks", "{}"), [task]);
-  assert.deepEqual(await execute("listTasks", '{"display":true}'), { reply: "· 买牛奶（待办）" });
-  await execute("updateTask", JSON.stringify({ id: task.id, changes: { done: true } }));
+  assert.ok("error" in Object(await execute("updateTask", { id: task.id, changes: {} })));
+  assert.deepEqual(await execute("listTasks", {}), [task]);
+  assert.deepEqual(await execute("listTasks", { display: true }), { reply: "· 买牛奶（待办）" });
+  await execute("updateTask", { id: task.id, changes: { done: true } });
   assert.equal(createJsonTaskStore(filename).list()[0].done, true);
-  await execute("deleteTask", JSON.stringify({ id: task.id }));
-  assert.deepEqual(await execute("listTasks", "{}"), []);
+  await execute("deleteTask", { id: task.id });
+  assert.deepEqual(await execute("listTasks", {}), []);
 });
 
 test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {
@@ -107,8 +98,8 @@ test("任务详情持久化，筛选到期子任务并保留已删除父任务�
   const { request, port, filename } = await startTestApp(t);
   const store = createJsonTaskStore(filename);
   const tools = taskTools(port, store);
-  const run = (name: string, args: unknown) =>
-    tools.find((tool) => tool.definition.function.name === name)!.execute(JSON.stringify(args));
+  const run = async (name: string, args: unknown) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
   const parent = store.create("准备发布");
   const child = store.create("核对清单");
   const details = { dueDate: "2028-02-29", priority: "高", effort: "小", parentId: parent.id };
@@ -141,7 +132,11 @@ test("任务详情持久化，筛选到期子任务并保留已删除父任务�
 });
 
 test("聊天 API 只将有效的完整对话传给智能体，并返回其回复", async (t) => {
-  const { request, conversations } = await startTestApp(t);
+  const conversations: ChatMessage[][] = [];
+  const { request } = await startTestApp(t, async (messages) => {
+    conversations.push(messages);
+    return "收到";
+  });
   const messages = [
     { role: "user", content: "你好" },
     { role: "assistant", content: "你好！" },
@@ -154,3 +149,23 @@ test("聊天 API 只将有效的完整对话传给智能体，并返回其回复
   assert.equal(invalid.status, 400);
   assert.deepEqual(conversations, [messages]);
 });
+
+test(
+  "Pi 通过实时 DeepSeek 对话删除指定任务并保留其他记录",
+  {
+    skip: process.env.RUN_LIVE_AGENT_TEST !== "1",
+  },
+  async (t) => {
+    assert.ok(process.env.DEEPSEEK_API_KEY, "实时测试需要 DEEPSEEK_API_KEY");
+    const { request, filename } = await startTestApp(t);
+    const store = createJsonTaskStore(filename);
+    const keep = store.create("买牛奶");
+    store.create("取快递");
+    const response = await request("POST", "/api/chat", {
+      messages: [{ role: "user", content: "取快递这条删掉吧" }],
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.body.reply, /取快递/u);
+    assert.deepEqual(createJsonTaskStore(filename).list(), [keep]);
+  },
+);

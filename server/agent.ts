@@ -1,7 +1,8 @@
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { contentText, type Message } from "@earendil-works/pi-ai";
 import type { ChatMessage } from "../shared/chat.ts";
 import type { Task } from "../shared/task.ts";
-import { getModelClient, model } from "./model.ts";
+import { chatModel, deepseek } from "./model.ts";
 import type { TaskTool } from "./task-tools.ts";
 
 const instructions = `你是小明，帮助用户用中文管理本地待办清单。根据整段对话理解本轮意图。
@@ -16,6 +17,29 @@ const instructions = `你是小明，帮助用户用中文管理本地待办清�
 创建带详情的任务时，用新建任务返回的 ID 设置详情。同名子任务用父任务区分。
 删除父任务只删除这一条，子任务仍保留。不要声称已设置通知。`;
 
+function historyMessage({ role, content }: ChatMessage): Message {
+  const timestamp = Date.now();
+  if (role === "user") return { role, content, timestamp };
+  // The browser retains text only. Historical messages add no usage to this request.
+  return {
+    role,
+    content: [{ type: "text", text: content }],
+    timestamp,
+    api: chatModel.api,
+    provider: chatModel.provider,
+    model: chatModel.id,
+    stopReason: "stop",
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+  };
+}
+
 export async function reply(
   history: ChatMessage[],
   tools: TaskTool[],
@@ -23,64 +47,49 @@ export async function reply(
 ): Promise<string> {
   if (!process.env.DEEPSEEK_API_KEY)
     return "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。";
-  const client = getModelClient();
-  const messages: ChatCompletionMessageParam[] = [
-    {
-      role: "system",
-      content:
-        instructions +
-        "\n今天是 " +
-        new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" }).format(new Date()) +
-        "（服务器本地日期）。\n当前任务数据（JSON）：\n" +
-        JSON.stringify(currentTasks),
-    },
-    ...history,
-  ];
+  const today = new Intl.DateTimeFormat("sv-SE", { dateStyle: "short" }).format(new Date());
+  const writes = new Set(tools.filter((tool) => tool.writes).map((tool) => tool.name));
   const changes: string[] = [];
-  for (let round = 0; round < 12; round++) {
-    const request = {
-      model,
-      messages,
-      tools: tools.map((tool) => tool.definition),
-      tool_choice: changes.length ? ("auto" as const) : ("required" as const),
-      thinking: { type: "disabled" },
-    };
-    const completion = await client.chat.completions.create(request).catch((error: unknown) => {
-      if (!changes.length) throw error;
-      return undefined;
-    });
-    const answer = completion?.choices[0]?.message;
-    if (!answer) break;
-    if (!answer.tool_calls?.length) {
-      if (changes.length && answer.content?.trim()) return answer.content.trim();
-      break;
-    }
-    messages.push(answer);
-    for (const call of answer.tool_calls) {
-      const tool =
-        call.type === "function"
-          ? tools.find((entry) => entry.definition.function.name === call.function.name)
-          : undefined;
-      const result =
-        tool && call.type === "function"
-          ? await tool.execute(call.function.arguments)
-          : { error: "未知工具。" };
-      if (
-        !tool?.writes &&
-        answer.tool_calls.length === 1 &&
-        !changes.length &&
-        result &&
-        typeof result === "object" &&
-        "reply" in result &&
-        typeof result.reply === "string"
-      )
-        return result.reply;
-      const content = JSON.stringify(result);
-      messages.push({ role: "tool", tool_call_id: call.id, content });
-      if (tool?.writes && result && typeof result === "object" && !("error" in result))
-        changes.push(content);
-    }
-  }
+  let answer = "";
+  let turns = 0;
+  const agent = new Agent({
+    initialState: {
+      model: chatModel,
+      tools,
+      thinkingLevel: "off",
+      systemPrompt: `${instructions}\n今天是 ${today}（服务器本地日期）。\n当前任务数据（JSON）：\n${JSON.stringify(currentTasks)}`,
+    },
+    toolExecution: "sequential",
+    streamFn: (_model, context, options) =>
+      deepseek.stream(chatModel, context, {
+        ...options,
+        apiKey: process.env.DEEPSEEK_API_KEY,
+        toolChoice: changes.length ? "auto" : "required",
+      }),
+    finishTurn({ message, toolResults }) {
+      turns++;
+      for (const result of toolResults) {
+        if (result.isError) continue;
+        if (writes.has(result.toolName)) changes.push(contentText(result.content));
+        else if (toolResults.length === 1 && !changes.length) {
+          const details = result.details;
+          if (
+            details &&
+            typeof details === "object" &&
+            "reply" in details &&
+            typeof details.reply === "string"
+          )
+            answer = details.reply;
+        }
+      }
+      if (message.stopReason === "stop" && !toolResults.length && changes.length)
+        answer = contentText(message.content).trim();
+      if (answer || turns >= 12) return { action: "end" };
+    },
+  });
+  await agent.prompt(history.map(historyMessage));
+  if (answer) return answer;
+  if (!changes.length && agent.state.errorMessage) throw new Error(agent.state.errorMessage);
   return changes.length
     ? `本轮未能生成完整回复。已保存的操作结果：\n${changes.join("\n")}`
     : "本轮未能完成，请再描述一下需要处理的任务。";

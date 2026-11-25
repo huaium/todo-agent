@@ -1,14 +1,12 @@
-import type { ChatCompletionFunctionTool } from "openai/resources/chat/completions";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { z } from "zod";
 import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
 import { detailsSchema, setDetails } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
 
-export interface TaskTool {
+export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
-  definition: ChatCompletionFunctionTool;
-  execute(input: string): Promise<unknown>;
 }
 
 export function taskTool<S extends z.ZodObject>(
@@ -21,19 +19,20 @@ export function taskTool<S extends z.ZodObject>(
   const { $schema: _dialect, ...parameters } = z.toJSONSchema(schema);
   return {
     writes,
-    definition: { type: "function", function: { name, description, parameters } },
-    async execute(input) {
-      let args: unknown;
-      try {
-        args = JSON.parse(input);
-      } catch (error) {
-        if (!(error instanceof SyntaxError)) throw error;
-        return { error: "工具参数需要有效的 JSON 对象。" };
-      }
+    name,
+    label: description,
+    description,
+    parameters,
+    async execute(_callId, args) {
       const result = schema.safeParse(args);
-      if (!result.success)
-        return { error: result.error.issues.map(({ path, message }) => ({ path, message })) };
-      return run(result.data);
+      const details = result.success
+        ? await run(result.data)
+        : { error: result.error.issues.map(({ path, message }) => ({ path, message })) };
+      return {
+        content: [{ type: "text", text: JSON.stringify(details) }],
+        details,
+        isError: details !== null && typeof details === "object" && "error" in details,
+      };
     },
   };
 }
