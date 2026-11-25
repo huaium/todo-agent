@@ -481,6 +481,15 @@
 .editor {
   container-type: inline-size;
 }
+[data-theme="dark"] .editor {
+  --field-background: var(--default);
+  --field-hover: var(--default-hover);
+  --field-focus: var(--default);
+  --border-width-field: 1px;
+  --field-border: color-mix(in oklab, var(--muted) 80%, var(--surface));
+  --field-border-hover: var(--muted);
+  --field-border-focus: var(--focus);
+}
 .editor .date-field__group,
 .editor .time-field__group {
   width: 100%;
