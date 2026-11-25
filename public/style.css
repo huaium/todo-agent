@@ -58,6 +58,108 @@ main {
   min-height: 0;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+.task-panel {
+  flex: 0 0 clamp(240px, 26vw, 350px);
+  overflow-y: auto;
+  background: white;
+  border-right: 1px solid #e3e6ed;
+  padding: 26px 20px;
+}
+.panel-heading,
+.task-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.panel-heading {
+  justify-content: space-between;
+}
+.panel-heading h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.panel-heading button,
+.switch-view {
+  background: white;
+  color: #334f95;
+  border: 1px solid #d8deea;
+  padding: 5px 12px;
+  border-radius: 8px;
+}
+.switch-view {
+  display: none;
+  margin-left: auto;
+}
+.task-panel p {
+  color: #58687e;
+  margin-top: 18px;
+}
+.task-group h3 {
+  font-size: 14px;
+  margin: 24px 0 7px;
+}
+.task-group h3 span {
+  color: #69758b;
+  font-weight: 400;
+}
+.task-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.task {
+  display: flex;
+  gap: 10px;
+  align-items: start;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf0f5;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.task-status {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  border: 1.5px solid #7e8ca5;
+  border-radius: 50%;
+}
+.done .task-status {
+  background: #e0f1e8;
+  color: #216145;
+  border: 0;
+  text-align: center;
+  font-size: 12px;
+}
+.done .task-title {
+  color: #677383;
+  text-decoration: line-through;
+}
+.task small {
+  display: block;
+  font-size: 12px;
+  color: #616e82;
+  margin-top: 4px;
+}
+@media (max-width: 720px) {
+  .switch-view {
+    display: block;
+  }
+  .task-panel {
+    flex: 1;
+    border: 0;
+  }
+  [data-mobile-view="chat"] .task-panel,
+  [data-mobile-view="tasks"] main {
+    display: none;
+  }
 }
 .scroll {
   overflow-y: auto;
