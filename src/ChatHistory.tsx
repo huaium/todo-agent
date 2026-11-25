@@ -9,6 +9,7 @@ import {
 import * as m from "motion/react-m";
 import type { ChatMessage, QuestionAnswer } from "../shared/chat.ts";
 import { QuestionControls } from "./QuestionControls.tsx";
+import { Button, Spinner } from "@heroui/react";
 
 const examplePrompts = ["帮我记一下买牛奶", "看看我的待办", "今天有哪些任务到期？"];
 
@@ -50,10 +51,10 @@ export function ChatHistory({
           <h2>今天想安排什么？</h2>
           <div className="examples">
             {examplePrompts.map((prompt) => (
-              <button key={prompt} onClick={() => onSelectPrompt(prompt)}>
+              <Button variant="tertiary" key={prompt} onPress={() => onSelectPrompt(prompt)}>
                 {prompt}
                 <span aria-hidden="true">↗</span>
-              </button>
+              </Button>
             ))}
           </div>
         </section>
@@ -91,11 +92,7 @@ export function ChatHistory({
           </LazyMotion>
           {pending && (
             <p className="reply-pending" role="status">
-              <span aria-hidden="true">
-                <i />
-                <i />
-                <i />
-              </span>
+              <Spinner size="sm" aria-hidden="true" />
               正在回复…
             </p>
           )}

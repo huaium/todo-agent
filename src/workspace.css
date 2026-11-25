@@ -328,6 +328,7 @@
 }
 .examples .button {
   justify-content: space-between;
+  width: 100%;
 }
 .thread {
   display: grid;
@@ -380,6 +381,21 @@
   border-radius: 14px;
   gap: 10px;
 }
+.chat-question .task-choice {
+  height: auto;
+  justify-content: start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-block: 8px;
+  margin-bottom: 5px;
+}
+.reply-pending {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
 .task-choice span {
   font-size: 0.75rem;
   color: var(--muted);
@@ -390,6 +406,8 @@
   margin: 10px;
 }
 .composer textarea {
+  display: block;
+  resize: none;
   width: 100%;
   min-height: 84px;
   padding-inline-end: 60px;

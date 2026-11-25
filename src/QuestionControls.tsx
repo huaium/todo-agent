@@ -2,6 +2,8 @@ import { useState } from "react";
 import { AnimatePresence, useIsPresent } from "motion/react";
 import * as m from "motion/react-m";
 import type { ChatQuestion, QuestionAnswer } from "../shared/chat.ts";
+import { Button } from "@heroui/react";
+import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
 
 function DeadlineChoices({
   question,
@@ -15,10 +17,18 @@ function DeadlineChoices({
   const present = useIsPresent();
   return (
     <m.section className="deadline-choices" inert={!present} exit={{ opacity: 0 }}>
-      <button onClick={() => open(question.today)}>今天 · {question.today}</button>
-      <button onClick={() => open(question.tomorrow)}>明天 · {question.tomorrow}</button>
-      <button onClick={() => open("")}>选日期和时间</button>
-      <button onClick={dismiss}>暂不设置</button>
+      <Button variant="secondary" size="sm" onPress={() => open(question.today)}>
+        今天 · {question.today}
+      </Button>
+      <Button variant="secondary" size="sm" onPress={() => open(question.tomorrow)}>
+        明天 · {question.tomorrow}
+      </Button>
+      <Button variant="tertiary" size="sm" onPress={() => open("")}>
+        选日期和时间
+      </Button>
+      <Button variant="ghost" size="sm" onPress={dismiss}>
+        暂不设置
+      </Button>
     </m.section>
   );
 }
@@ -50,19 +60,23 @@ export function QuestionControls({
       {q.kind === "choice" ? (
         <>
           {q.tasks.map((t) => (
-            <button
+            <Button
+              variant="tertiary"
+              isDisabled={disabled}
               className="task-choice"
               key={t.id}
-              onClick={() => onAnswer({ kind: "choose", taskId: t.id })}
+              onPress={() => onAnswer({ kind: "choose", taskId: t.id })}
             >
               <strong>{t.title}</strong>
               <span>
                 {t.list} ·{" "}
                 {t.dueDate ? [t.dueDate, t.dueTime].filter(Boolean).join(" ") : "无截止日期"}
               </span>
-            </button>
+            </Button>
           ))}
-          <button onClick={dismiss}>取消</button>
+          <Button variant="ghost" size="sm" onPress={dismiss}>
+            取消
+          </Button>
         </>
       ) : (
         <AnimatePresence initial={false}>
@@ -81,33 +95,34 @@ export function QuestionControls({
                   {initialDate} · {q.timeZone}
                 </span>
               ) : (
-                <label>
-                  截止日期
-                  <input
-                    autoFocus
-                    type="date"
-                    required
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                  />
-                </label>
-              )}
-              <label>
-                截止时间{!initialDate && "（可选）"}
-                <input
-                  type="time"
-                  required={!!initialDate}
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
+                <PlannerDate
+                  label="截止日期"
+                  zone={q.timeZone}
+                  autoFocus
+                  required
+                  value={date}
+                  disabled={disabled}
+                  onChange={setDate}
                 />
-              </label>
+              )}
+              <PlannerTime
+                label={initialDate ? "截止时间" : "截止时间（可选）"}
+                required={!!initialDate}
+                disabled={disabled}
+                value={time}
+                onChange={setTime}
+              />
               <footer>
-                <button className="save-deadline" disabled={!date || (!!initialDate && !time)}>
+                <Button
+                  type="submit"
+                  size="sm"
+                  isDisabled={disabled || !date || (!!initialDate && !time)}
+                >
                   {initialDate ? "保存时间" : "保存"}
-                </button>
-                <button type="button" onClick={dismiss}>
+                </Button>
+                <Button variant="ghost" size="sm" onPress={dismiss}>
                   {initialDate ? "仅设日期" : "取消"}
-                </button>
+                </Button>
               </footer>
             </m.form>
           ) : (

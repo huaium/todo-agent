@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { Button, TextArea } from "@heroui/react";
+import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { useConversation } from "./chat-client.ts";
 import type { ChatMessage, ViewContext } from "../shared/chat.ts";
@@ -13,6 +15,7 @@ export function ChatPanel({
 }) {
   const { state, active, error, reload, submit } = useConversation();
   const [draft, setDraft] = useState("");
+  const [clearRevision, setClearRevision] = useState<number | null>(null);
   const busy = !state || !!active || state.pending;
   const sending = active?.action === "send" && active.revision === state?.revision;
   const history: ChatMessage[] = sending
@@ -49,21 +52,36 @@ export function ChatPanel({
         <img src="/logo.png" alt="" />
         <strong>小明</strong>
         {!!state?.messages.length && (
-          <button
+          <Button
+            size="sm"
+            variant="ghost"
             className="clear-chat"
-            disabled={busy}
-            onClick={() => {
-              if (window.confirm("清空这段对话？任务会保留。"))
-                void submit({ action: "clear", revision: state.revision });
-            }}
+            isDisabled={busy}
+            onPress={() => setClearRevision(state.revision)}
           >
             清空对话
-          </button>
+          </Button>
         )}
-        <button className="mobile-only" onClick={close}>
+        <Button size="sm" variant="tertiary" className="mobile-only" onPress={close}>
           返回清单
-        </button>
+        </Button>
       </div>
+      <ConfirmAction
+        open={clearRevision !== null}
+        close={() => setClearRevision(null)}
+        title="清空这段对话？"
+        consequence="聊天记录和待回答的问题将被清除，清单中的任务会保留。"
+        action="清空对话"
+        confirm={async () => {
+          if (
+            clearRevision === null ||
+            !(await submit({ action: "clear", revision: clearRevision }))
+          )
+            return false;
+          requestAnimationFrame(() => input.current?.focus());
+          return true;
+        }}
+      />
       {state ? (
         <ChatHistory
           messages={history}
@@ -76,7 +94,13 @@ export function ChatPanel({
         />
       ) : (
         <div className="scroll thread" role="status">
-          {error ? <button onClick={reload}>重新加载对话</button> : "正在读取对话…"}
+          {error ? (
+            <Button variant="tertiary" onPress={() => void reload()}>
+              重新加载对话
+            </Button>
+          ) : (
+            "正在读取对话…"
+          )}
         </div>
       )}
       {preview && (
@@ -85,12 +109,17 @@ export function ChatPanel({
           <p>
             {preview.date} · {preview.titles.join("、")}
           </p>
-          <button disabled={busy} onClick={() => applyPreview("confirm")}>
+          <Button size="sm" isDisabled={busy} onPress={() => applyPreview("confirm")}>
             确认改期
-          </button>{" "}
-          <button disabled={busy} onClick={() => applyPreview("cancel")}>
+          </Button>{" "}
+          <Button
+            size="sm"
+            variant="tertiary"
+            isDisabled={busy}
+            onPress={() => applyPreview("cancel")}
+          >
             取消
-          </button>
+          </Button>
         </div>
       )}
       <form
@@ -101,7 +130,8 @@ export function ChatPanel({
         }}
       >
         {error && <p role="alert">{error}</p>}
-        <textarea
+        <TextArea
+          variant="secondary"
           ref={input}
           maxLength={16000}
           value={draft}
@@ -121,7 +151,14 @@ export function ChatPanel({
             }
           }}
         />
-        <button disabled={busy || !draft.trim()} aria-label="发送消息">
+        <Button
+          className="send"
+          type="submit"
+          size="sm"
+          isIconOnly
+          isDisabled={busy || !draft.trim()}
+          aria-label="发送消息"
+        >
           <svg
             width="18"
             height="18"
@@ -136,7 +173,7 @@ export function ChatPanel({
           >
             <path d="m21 3-6.3 17.5-3.8-7.4-7.4-3.8L21 3Z M10.9 13.1 21 3" />
           </svg>
-        </button>
+        </Button>
       </form>
     </aside>
   );
