@@ -1,83 +1,155 @@
-import { useEffect, useState } from "react";
-import { efforts, priorities, type Task } from "../shared/task.ts";
-
-interface TaskListProps {
-  revision: number;
-  refresh(): void;
+import { useState } from "react";
+import {
+  inbox,
+  offsetDate,
+  repeatLabels,
+  type Planner,
+  type PlannerTask,
+} from "../shared/planner.ts";
+import type { Action } from "./planner-client.ts";
+interface Props {
+  items: PlannerTask[];
+  data: Planner;
+  view: string;
+  today: string;
+  open(id: string): void;
+  act: Action;
 }
-
-function TaskRow({ task, parent }: { task: Task; parent?: Task }) {
-  const details = [
-    parent && `子任务 · ${parent.title}`,
-    typeof task.dueDate === "string" && `${task.dueDate} 到期`,
-    priorities.some((p) => p === task.priority) && `${task.priority}优先级`,
-    efforts.some((e) => e === task.effort) && `工作量${task.effort}`,
-  ].filter(Boolean);
-  return (
-    <li className={task.done ? "task done" : "task"}>
-      <span className="task-status" aria-hidden="true">
-        {task.done ? "✓" : ""}
-      </span>
-      <div>
-        <span className="task-title">{task.title}</span>
-        {details.length > 0 && <small>{details.join(" · ")}</small>}
-      </div>
-    </li>
+export function TaskList({ items, data, view, today, open, act }: Props) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const groups = new Map<string, PlannerTask[]>();
+  for (const task of items) {
+    const group =
+      view === "today"
+        ? task.dueDate! < today
+          ? "已逾期"
+          : "今天到期"
+        : view === "upcoming"
+          ? task.dueDate!
+          : task.done
+            ? "已完成"
+            : "待办";
+    const list = groups.get(group) ?? [];
+    list.push(task);
+    groups.set(group, list);
+  }
+  const order = [...groups.keys()].sort((a, b) =>
+    view === "today"
+      ? Number(a !== "已逾期") - Number(b !== "已逾期")
+      : view === "upcoming"
+        ? a.localeCompare(b)
+        : Number(a === "已完成") - Number(b === "已完成"),
   );
-}
-
-export function TaskList({ revision, refresh }: TaskListProps) {
-  const [tasks, setTasks] = useState<Task[]>();
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const controller = new AbortController();
-    async function load() {
-      try {
-        const response = await fetch("/api/tasks", { signal: controller.signal });
-        if (!response.ok) throw new Error("暂时无法读取清单，请刷新重试。");
-        const current: Task[] = await response.json();
-        if (!controller.signal.aborted) {
-          setTasks(current);
-          setError("");
-        }
-      } catch (cause) {
-        if (!controller.signal.aborted)
-          setError(cause instanceof Error ? cause.message : "读取清单失败。");
-      }
+  const patch = (id: string, changes: object) => act("planner/tasks/" + id, "PATCH", { changes });
+  const byParent = new Map<string, PlannerTask[]>();
+  for (const t of data.tasks) {
+    if (t.parentId) {
+      const siblings = byParent.get(t.parentId) ?? [];
+      siblings.push(t);
+      byParent.set(t.parentId, siblings);
     }
-    void load();
-    return () => controller.abort();
-  }, [revision]);
-  const byId = new Map(tasks?.map((task) => [task.id, task]));
-  return (
-    <aside className="task-panel" aria-label="任务清单">
-      <div className="panel-heading">
-        <h2>任务清单</h2>
-        <button onClick={refresh}>刷新</button>
+  }
+  function render(task: PlannerTask, ancestors: Set<string>) {
+    const children = (byParent.get(task.id) ?? []).filter((t) => !ancestors.has(t.id));
+    const list = data.lists.find((l) => l.id === (task.listId ?? inbox));
+    const meta = [
+      view !== "list:" + list?.id && list?.name,
+      task.repeat && repeatLabels[task.repeat],
+      ...(task.tags ?? []).map((tag) => "#" + tag),
+    ].filter(Boolean);
+    return (
+      <li key={task.id}>
+        <div className={"task-row" + (task.done ? " completed" : "")}>
+          <button
+            className="circle-check"
+            role="checkbox"
+            aria-checked={task.done}
+            aria-label={(task.done ? "重新打开" : "完成") + task.title}
+            onClick={() => patch(task.id, { done: !task.done })}
+          >
+            {task.done ? "✓" : ""}
+          </button>
+          <div className="row-text">
+            <button className="title-button" onClick={() => open(task.id)}>
+              {task.title}
+            </button>
+            {(meta.length > 0 || children.length > 0) && (
+              <div className="metadata">
+                {meta.join(" · ")}{" "}
+                {children.length > 0 && (
+                  <button
+                    aria-expanded={expanded.has(task.id)}
+                    onClick={() =>
+                      setExpanded((old) => {
+                        const next = new Set(old);
+                        if (!next.delete(task.id)) next.add(task.id);
+                        return next;
+                      })
+                    }
+                  >
+                    {expanded.has(task.id) ? "▾" : "▸"} {children.length} 个子任务
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {task.dueDate && (
+            <time className={task.dueDate < today && !task.done ? "overdue" : ""}>
+              {task.dueDate === today ? "今天" : task.dueDate.slice(5)} {task.dueTime}
+            </time>
+          )}
+          <button
+            className={"star" + (task.starred ? " active" : "")}
+            aria-label={"星标" + task.title}
+            aria-pressed={!!task.starred}
+            onClick={() => patch(task.id, { starred: !task.starred })}
+          >
+            {task.starred ? "★" : "☆"}
+          </button>
+          <details className="row-menu">
+            <summary aria-label={"操作" + task.title}>···</summary>
+            <div onClick={(e) => e.currentTarget.parentElement?.removeAttribute("open")}>
+              <button onClick={() => open(task.id)}>编辑详情</button>
+              <button onClick={() => patch(task.id, { dueDate: offsetDate(today, 1) })}>
+                明天
+              </button>
+              <button onClick={() => patch(task.id, { dueDate: null })}>移除截止日期</button>
+            </div>
+          </details>
+        </div>
+        {expanded.has(task.id) && children.length > 0 && (
+          <ul className="nested">
+            {children.map((t) => render(t, new Set([...ancestors, task.id])))}
+          </ul>
+        )}
+      </li>
+    );
+  }
+  if (!items.length)
+    return (
+      <div className="empty-list">
+        <span aria-hidden="true">✓</span>
+        <h3>{view === "today" ? "今天没有到期任务" : "没有符合条件的任务"}</h3>
       </div>
-      {error && <p role="alert">{error}</p>}
-      {tasks === undefined && !error && <p role="status">正在读取…</p>}
-      {tasks?.length === 0 && <p>清单是空的。告诉小明你要做什么。</p>}
-      {[false, true].map((done) => {
-        const group = tasks?.filter((task) => task.done === done);
-        if (!group?.length) return null;
+    );
+  return (
+    <>
+      {order.map((key) => {
+        const rows = groups.get(key)!;
+        const ids = new Set(rows.map((t) => t.id));
         return (
-          <section className="task-group" key={String(done)}>
-            <h3>
-              {done ? "已完成" : "待办"} <span>{group.length}</span>
-            </h3>
+          <section className="task-section" key={key}>
+            <h2>
+              {key} <small>{rows.length}</small>
+            </h2>
             <ul>
-              {group.map((task) => (
-                <TaskRow
-                  key={task.id}
-                  task={task}
-                  parent={typeof task.parentId === "string" ? byId.get(task.parentId) : undefined}
-                />
-              ))}
+              {rows
+                .filter((t) => !t.parentId || !ids.has(t.parentId))
+                .map((t) => render(t, new Set()))}
             </ul>
           </section>
         );
       })}
-    </aside>
+    </>
   );
 }

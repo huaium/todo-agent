@@ -20,8 +20,7 @@ export function ChatHistory({ messages, pending, onSelectPrompt }: ChatHistoryPr
       {messages.length === 0 ? (
         <section className="welcome">
           <img src="/logo.png" alt="" />
-          <h1>小明智能体</h1>
-          <p>今天有什么待办？</p>
+          <h2>今天想安排什么？</h2>
           <div className="examples">
             {examplePrompts.map((prompt) => (
               <button key={prompt} onClick={() => onSelectPrompt(prompt)}>
