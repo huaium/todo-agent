@@ -17,6 +17,19 @@ async function fixture(t: TestContext, legacy?: unknown) {
   const store = createTaskStore(db, () => new Date("2026-01-30T10:00:00Z"));
   return { file, store };
 }
+test("manual ordering preserves hidden slots and rejects stale or invalid moves atomically", async (t) => {
+  const { store } = await fixture(t);
+  const [a, hidden, b, c] = ["a", "hidden", "b", "c"].map((title) => store.create(title));
+  const previous = [a.id, b.id, c.id],
+    ordered = [c.id, a.id, b.id];
+  assert.ok(store.reorder(previous, ordered));
+  assert.deepEqual(store.list(), [c, hidden, a, b]);
+  assert.equal(store.reorder(previous, ordered), false);
+  assert.throws(() => store.reorder(ordered, [a.id, a.id, c.id]));
+  store.remove(a.id);
+  assert.equal(store.reorder(ordered, previous), false);
+  assert.deepEqual(store.list(), [c, hidden, b]);
+});
 test("旧清单原子迁移，移动父任务时同步移动所有子项，删除清单保留任务", async (t) => {
   const old = { id: "legacy", done: false, title: "报告", extension: 42 };
   const { file, store } = await fixture(t, [old]);

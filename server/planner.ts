@@ -78,6 +78,13 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
       .parse(req.body);
     res.status(201).json(store.create(title, details));
   });
+  router.post("/tasks/order", (req, res) => {
+    const ids = z.array(z.string().min(1)).min(2);
+    const { previous, ordered } = z.strictObject({ previous: ids, ordered: ids }).parse(req.body);
+    if (!store.reorder(previous, ordered))
+      return res.status(409).json({ error: "任务顺序已变化，请按最新顺序重试。" });
+    res.sendStatus(204);
+  });
   router.patch("/tasks/:id", (req, res) => {
     const { changes, scope } = z
       .strictObject({ changes: plannerChanges, scope: z.enum(["one", "future"]).optional() })

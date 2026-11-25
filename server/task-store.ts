@@ -25,6 +25,7 @@ export interface TaskStore {
   bin(): BinItem[];
   restore(id: string, deletedAt: number): boolean;
   purgeExpired(): void;
+  reorder(previous: string[], ordered: string[]): boolean;
   editList(id: string | null, name: string | null): string;
   reschedule(ids: string[], dueDate: string): void;
   remind(id: string, expected: string, action: "claim" | "snooze"): boolean;
@@ -307,6 +308,32 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
           ).run(id);
         }
         return id;
+      });
+    },
+    reorder(previous, ordered) {
+      const ids = new Set(previous);
+      if (
+        ids.size !== previous.length ||
+        ordered.length !== ids.size ||
+        new Set(ordered).size !== ids.size ||
+        ordered.some((id) => !ids.has(id))
+      )
+        fail("排序必须包含同一组任务，且不能重复。");
+      return transaction(db, () => {
+        const slots = db
+          .prepare(
+            "SELECT id, position FROM tasks WHERE id IN (SELECT value FROM json_each(?)) ORDER BY position",
+          )
+          .all(JSON.stringify(previous));
+        if (slots.length !== previous.length || slots.some((row, i) => row.id !== previous[i]))
+          return false;
+        const assign = db.prepare("UPDATE tasks SET position=? WHERE id=?");
+        // Vacate only the affected primary keys before assigning their final positions.
+        for (const [i, row] of slots.entries())
+          if (previous[i] !== ordered[i]) assign.run(-Number(row.position), previous[i]);
+        for (const [i, row] of slots.entries())
+          if (previous[i] !== ordered[i]) assign.run(row.position, ordered[i]);
+        return true;
       });
     },
     reschedule(ids, date) {
