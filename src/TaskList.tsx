@@ -1,12 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button, Checkbox, Dropdown } from "@heroui/react";
-import {
-  inbox,
-  offsetDate,
-  repeatLabels,
-  type Planner,
-  type PlannerTask,
-} from "../shared/planner.ts";
+import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 interface Props {
   items: PlannerTask[];
@@ -14,9 +8,10 @@ interface Props {
   view: string;
   today: string;
   open(id: string): void;
+  requestDelete(id: string): void;
   act: Action;
 }
-export function TaskList({ items, data, view, today, open, act }: Props) {
+export function TaskList({ items, data, view, today, open, requestDelete, act }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<{ text: string }>();
   useEffect(() => {
@@ -134,17 +129,18 @@ export function TaskList({ items, data, view, today, open, act }: Props) {
                 <Dropdown.Item id="edit" onAction={() => open(task.id)}>
                   编辑详情
                 </Dropdown.Item>
-                <Dropdown.Item
-                  id="tomorrow"
-                  onAction={() => void patch(task.id, { dueDate: offsetDate(today, 1) })}
-                >
-                  明天
-                </Dropdown.Item>
-                <Dropdown.Item
-                  id="unschedule"
-                  onAction={() => void patch(task.id, { dueDate: null })}
-                >
-                  移除截止日期
+                {!task.done && task.dueDate && (
+                  <Dropdown.Item
+                    id="unschedule"
+                    onAction={() =>
+                      void patch(task.id, { dueDate: null, reminder: task.reminder ?? null })
+                    }
+                  >
+                    移除截止日期
+                  </Dropdown.Item>
+                )}
+                <Dropdown.Item id="delete" variant="danger" onAction={() => requestDelete(task.id)}>
+                  删除任务
                 </Dropdown.Item>
               </Dropdown.Menu>
             </Dropdown.Popover>

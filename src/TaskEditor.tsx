@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { Button, Checkbox, Input, Label, Surface, TextArea, TextField } from "@heroui/react";
-import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
+import { ChoiceField, options } from "./PlannerControls.tsx";
 import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
 import { efforts, priorities } from "../shared/task.ts";
 import {
@@ -18,15 +18,16 @@ export function TaskEditor({
   act,
   close,
   open,
+  requestDelete,
 }: {
   task: PlannerTask;
   data: Planner;
   act: Action;
   close(): void;
   open(id: string): void;
+  requestDelete(id: string): void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [deleting, setDeleting] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [child, setChild] = useState("");
   const [childError, setChildError] = useState("");
@@ -217,23 +218,11 @@ export function TaskEditor({
           <Button type="submit" isPending={busy}>
             保存更改
           </Button>
-          <Button variant="danger-soft" isDisabled={busy} onPress={() => setDeleting(true)}>
+          <Button variant="danger-soft" isDisabled={busy} onPress={() => requestDelete(task.id)}>
             删除任务
           </Button>
         </div>
       </form>
-      <ConfirmAction
-        open={deleting}
-        close={() => setDeleting(false)}
-        title={`删除「${task.title}」？`}
-        consequence="这条任务将被删除，子任务会保留。"
-        action="删除任务"
-        confirm={async () => {
-          if (!(await act("tasks/" + task.id, "DELETE"))) return false;
-          close();
-          return true;
-        }}
-      />
       {!task.repeat && (
         <Surface className="child-editor">
           <h3>子任务</h3>

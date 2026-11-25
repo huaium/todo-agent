@@ -36,6 +36,7 @@ export default function App() {
   const [listEdit, setListEdit] = useState<string | null>(null);
   const [listName, setListName] = useState("");
   const [deleteList, setDeleteList] = useState(false);
+  const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const listMenu = useRef<HTMLButtonElement>(null);
   const [notifications, setNotifications] = useState(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
@@ -47,6 +48,7 @@ export default function App() {
     data.lists.find((l) => l.id === personal)?.name ??
     "收件箱";
   const selectedTask = data.tasks.find((t) => t.id === selected);
+  const deleteTask = data.tasks.find((t) => t.id === deleteTaskId);
   const tags = [...new Set(data.tasks.flatMap((t) => t.tags ?? []))].sort();
   function inView(t: (typeof data.tasks)[number], v: string) {
     if (v === "today") return !t.done && !!t.dueDate && t.dueDate <= today;
@@ -455,7 +457,15 @@ export default function App() {
           </form>
           {captureError && <p role="alert">{captureError}</p>}
           {ready ? (
-            <TaskList items={items} data={data} view={view} today={today} open={open} act={act} />
+            <TaskList
+              items={items}
+              data={data}
+              view={view}
+              today={today}
+              open={open}
+              requestDelete={setDeleteTaskId}
+              act={act}
+            />
           ) : (
             <p role="status">正在读取清单…</p>
           )}
@@ -468,9 +478,31 @@ export default function App() {
             act={act}
             close={back}
             open={open}
+            requestDelete={setDeleteTaskId}
           />
         )}
       </main>
+      {deleteTask && (
+        <ConfirmAction
+          key={deleteTask.id}
+          open
+          close={() => setDeleteTaskId(null)}
+          title={`删除「${deleteTask.title}」？`}
+          consequence={
+            deleteTask.repeat && !deleteTask.done
+              ? "删除后将停止生成后续任务，已完成的记录会保留。"
+              : data.tasks.some((t) => t.parentId === deleteTask.id)
+                ? "子任务将作为独立任务保留在原清单中。"
+                : "删除后无法撤销。"
+          }
+          action="删除任务"
+          confirm={async () => {
+            if (!(await act("tasks/" + deleteTask.id, "DELETE"))) return false;
+            back();
+            return true;
+          }}
+        />
+      )}
       <ConfirmAction
         open={deleteList}
         title={`删除「${label}」？`}
