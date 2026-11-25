@@ -7,7 +7,7 @@ import { ChatPanel } from "./ChatPanel.tsx";
 import { usePlanner } from "./planner-client.ts";
 
 const views = [
-  ["today", "今天", "☼"],
+  ["today", "今天", ""],
   ["upcoming", "即将到期", "◷"],
   ["starred", "星标", "☆"],
   ["all", "全部", "☷"],
@@ -149,7 +149,9 @@ export default function App() {
               aria-current={view === id ? "page" : undefined}
               onClick={() => navigate(id)}
             >
-              <i aria-hidden="true">{icon}</i>
+              <i aria-hidden="true">
+                {id === "today" ? <span className="calendar-day">{today.slice(-2)}</span> : icon}
+              </i>
               {name}
               <small>{data.tasks.filter((t) => inView(t, id)).length || ""}</small>
             </button>

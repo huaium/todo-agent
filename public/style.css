@@ -53,7 +53,7 @@ summary:focus-visible {
   outline: 2px solid #4576ca;
   outline-offset: 2px;
 }
-button:hover:not(:disabled),
+button:hover:not(:disabled):where(:not(.nav-views button)),
 summary:hover {
   background: #eaf0f6;
 }
@@ -85,7 +85,7 @@ textarea {
   flex-direction: column;
   overflow: auto;
   padding: 21px 14px 16px;
-  background: #edf2f8;
+  background: #f6f6f3;
   border-right: 1px solid var(--line);
 }
 .brand {
@@ -117,9 +117,10 @@ textarea {
 }
 .nav-views button {
   padding: 10px;
-  border-radius: 7px;
+  border-radius: 5px;
   line-height: 1.5;
-  font-weight: 550;
+  color: #565750;
+  font-weight: 400;
   overflow-wrap: anywhere;
 }
 .nav-views i {
@@ -130,7 +131,22 @@ textarea {
   font-size: 20px;
   line-height: 1;
   font-style: normal;
-  color: #52647e;
+  color: inherit;
+}
+.calendar-day {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 19px;
+  border: 1px solid #96968f;
+  border-top: 4px solid #a75643;
+  border-radius: 3px;
+  background: #fff;
+  color: #393b36;
+  font:
+    600 10px/1 system-ui,
+    sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 .nav-views small,
 .rail-heading button {
@@ -141,16 +157,19 @@ textarea {
   font-size: 12px;
   font-weight: 400;
 }
-.nav-views [aria-current="page"],
 .tag-cloud .chosen {
   background: #d7e6fc;
   color: #154e98;
 }
-.nav-views [aria-current="page"] i {
-  color: #246ac0;
-}
 .nav-views [aria-current="page"] {
-  box-shadow: inset 3px 0 var(--blue);
+  background: #e5e5df;
+  color: #252721;
+  font-weight: 600;
+}
+@media (hover: hover) {
+  .nav-views button:not([aria-current]):hover {
+    background: #edede8;
+  }
 }
 .rail-heading {
   margin: 20px 8px 7px;
