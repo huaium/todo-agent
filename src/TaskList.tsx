@@ -129,16 +129,6 @@ export function TaskList({ items, data, view, today, open, requestDelete, act }:
                 <Dropdown.Item id="edit" onAction={() => open(task.id)}>
                   编辑详情
                 </Dropdown.Item>
-                {!task.done && task.dueDate && (
-                  <Dropdown.Item
-                    id="unschedule"
-                    onAction={() =>
-                      void patch(task.id, { dueDate: null, reminder: task.reminder ?? null })
-                    }
-                  >
-                    移除截止日期
-                  </Dropdown.Item>
-                )}
                 <Dropdown.Item id="delete" variant="danger" onAction={() => requestDelete(task.id)}>
                   删除任务
                 </Dropdown.Item>
