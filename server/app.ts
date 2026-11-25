@@ -5,7 +5,9 @@ import {
   conversationCommand,
   type ChatMessage,
   type ViewContext,
+  type ChatQuestion,
 } from "../shared/chat.ts";
+import { answerLabel, candidate, resolveQuestion, type QuestionResult } from "./chat-questions.ts";
 import { interruptedReply, openConversation, recentContext } from "./conversation.ts";
 import type { TaskStore } from "./task-store.ts";
 import { taskRouter } from "./tasks.ts";
@@ -27,21 +29,44 @@ export function createApp({ reply, tasks }: AppDependencies) {
   const chat = openConversation(tasks.filename + ".chat.json");
   app.use(express.json({ limit: "1mb" }));
 
-  async function respond(messages: ChatMessage[], port: number, view?: ViewContext) {
+  async function respond(
+    messages: ChatMessage[],
+    port: number,
+    view?: ViewContext,
+    interactive = false,
+    previous?: ChatQuestion,
+  ) {
     let preview: BulkPreview | undefined;
+    let interactionResult: QuestionResult | undefined;
     const { tasks: current, lists, timeZone } = tasks.snapshot();
     const answer = reply
       ? await reply(messages)
       : await agentReply(
           messages,
-          taskTools(port, tasks, (ids, date) => {
-            preview = bulk.preview(ids, date);
-            return preview;
-          }),
+          taskTools(
+            port,
+            tasks,
+            (ids, date) => {
+              preview = bulk.preview(ids, date);
+              return preview;
+            },
+            interactive
+              ? {
+                  previous,
+                  respond(result) {
+                    interactionResult = result;
+                  },
+                }
+              : undefined,
+          ),
           current,
-          { view, lists, timeZone },
+          { view, lists, timeZone, question: previous },
         );
-    return { reply: answer, preview };
+    return {
+      reply: preview ? answer : (interactionResult?.reply ?? answer),
+      preview,
+      question: preview ? undefined : interactionResult?.question,
+    };
   }
 
   app.get("/api/chat", (req, res) => {
@@ -65,21 +90,26 @@ export function createApp({ reply, tasks }: AppDependencies) {
       if (current.preview) bulk.discard(current.preview.token);
       return res.json(chat.save({ messages: [], pending: false }));
     }
-    if (command.action === "send") {
-      const messages: ChatMessage[] = [
-        ...current.messages,
-        { role: "user", content: command.text },
-      ];
+    if (command.action === "send" || command.action === "answer") {
+      const previous = current.messages.at(-1)?.question;
+      if (command.action === "answer" && (!previous || previous.id !== command.questionId))
+        return res.status(409).json({ error: "此问题已更新，请查看最新消息。" });
+      const content =
+        command.action === "send" ? command.text : answerLabel(previous!, command.answer);
+      const messages: ChatMessage[] = [...current.messages, { role: "user", content }];
       chat.save({ messages, pending: true });
       if (current.preview) bulk.discard(current.preview.token);
-      let result: Awaited<ReturnType<typeof respond>>;
+      let result: QuestionResult & { preview?: BulkPreview };
       try {
-        result = await respond(recentContext(messages), port, command.context);
+        result =
+          command.action === "answer"
+            ? await resolveQuestion(tasks, port, previous!, command.answer)
+            : await respond(recentContext(messages), port, command.context, true, previous);
       } catch (error) {
         chat.appendReply(interruptedReply);
         throw error;
       }
-      return res.json(chat.appendReply(result.reply, result.preview));
+      return res.json(chat.appendReply(result.reply, result.preview, result.question));
     }
     const preview = current.preview;
     if (!preview || preview.token !== command.token)
@@ -97,6 +127,16 @@ export function createApp({ reply, tasks }: AppDependencies) {
     return res.json(chat.appendReply(`已将 ${preview.titles.length} 条任务改到 ${preview.date}。`));
   });
 
+  app.all(["/api/tasks/:id", "/api/planner/tasks/:id"], (req, res, next) => {
+    const match = req.get("If-Match");
+    if (
+      match &&
+      (typeof req.params.id !== "string" ||
+        match !== `"${candidate(tasks.snapshot(), req.params.id)?.version}"`)
+    )
+      return res.status(412).json({ stale: true, error: "任务信息已变化。" });
+    next();
+  });
   app.use("/api/tasks", taskRouter(tasks));
   app.use("/api/planner", plannerRouter(tasks, bulk));
   app.use("/api", (_req, res) => res.status(404).json({ error: "接口不存在。" }));

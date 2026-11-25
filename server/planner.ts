@@ -4,13 +4,11 @@ import { z } from "zod";
 import { detailsSchema, PlannerError } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
 import { createTaskSchema } from "./tasks.ts";
+import { plannerChanges } from "../shared/task-details.ts";
+export { plannerChanges };
 import type { BulkPreview } from "../shared/chat.ts";
 
 const listName = z.strictObject({ name: z.string().trim().min(1).max(80) });
-export const plannerChanges = detailsSchema.safeExtend({
-  title: createTaskSchema.shape.title.optional(),
-  done: z.boolean().optional(),
-});
 export function bulkPreviews(store: TaskStore) {
   const pending = new Map<
     string,

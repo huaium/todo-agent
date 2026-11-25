@@ -4,6 +4,7 @@ import {
   conversationSchema,
   type BulkPreview,
   type ChatMessage,
+  type ChatQuestion,
   type Conversation,
 } from "../shared/chat.ts";
 
@@ -22,10 +23,10 @@ export function openConversation(filename: string) {
     state = updated;
     return state;
   }
-  function appendReply(content: string, preview?: BulkPreview) {
+  function appendReply(content: string, preview?: BulkPreview, question?: ChatQuestion) {
     return save({
       pending: false,
-      messages: [...state.messages, { role: "assistant", content }],
+      messages: [...state.messages, { role: "assistant", content, ...(question && { question }) }],
       preview,
     });
   }

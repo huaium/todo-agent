@@ -5,7 +5,21 @@ import { detailsSchema } from "./task-details.ts";
 import { pendingReminder } from "../shared/planner.ts";
 import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
-import type { BulkPreview } from "../shared/chat.ts";
+import {
+  choiceOperation,
+  questionAnswer,
+  type ChatQuestion,
+  type BulkPreview,
+} from "../shared/chat.ts";
+import {
+  choiceQuestion,
+  candidate,
+  refreshQuestion,
+  deadlineQuestion,
+  resolveQuestion,
+  type QuestionResult,
+} from "./chat-questions.ts";
+import { requestTask } from "./task-request.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
@@ -43,23 +57,85 @@ export function taskTools(
   port: number,
   store: TaskStore,
   preview?: (ids: string[], date: string) => BulkPreview,
+  interaction?: { previous?: ChatQuestion; respond(result: QuestionResult): void },
 ): TaskTool[] {
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
-    const collection = `http://127.0.0.1:${port}/api/${resource}`;
-    const url = id === undefined ? collection : `${collection}/${encodeURIComponent(id)}`;
-    const response = await fetch(url, {
-      method,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (response.status === 204) return { deleted: id };
-    if (!response.ok && response.status !== 400 && response.status !== 404) {
-      throw new Error(`任务接口返回 HTTP ${response.status}`);
+    const q = interaction?.previous;
+    if (
+      !q ||
+      !id ||
+      !["tasks", "planner/tasks"].includes(resource) ||
+      !["PATCH", "DELETE"].includes(method)
+    )
+      return requestTask(port, method, id, body, resource);
+    // A free-text turn can also invoke a regular task tool. Check the same snapshots as a click.
+    const choices = q.kind === "deadline" ? [q.task] : q.tasks;
+    const target = choices.find((t) => t.id === id);
+    if (!target) return requestTask(port, method, id, body, resource);
+    const snapshot = store.snapshot();
+    if (choices.every((t) => candidate(snapshot, t.id)?.version === t.version)) {
+      const result = await requestTask(port, method, id, body, resource, target.version);
+      if (!result.stale) return result;
     }
-    return response.json();
+    const updated = refreshQuestion(store, q);
+    interaction!.respond(updated);
+    return { error: updated.reply };
   }
   const id = z.string().min(1).describe("从任务清单读取的任务 ID");
   return [
+    ...(interaction
+      ? [
+          taskTool(
+            "askTaskChoice",
+            "当单项修改或删除有多个可能目标时，提供候选任务 ID 和用户要求的操作，等待用户选择。",
+            z.strictObject({ ids: z.array(id).min(2), operation: choiceOperation }),
+            async ({ ids, operation }) => {
+              const question = choiceQuestion(store.snapshot(), ids, operation);
+              if (!question) return { error: "没有可选择的任务。" };
+              const previous = interaction.previous;
+              if (
+                previous?.kind === "choice" &&
+                question.kind === "choice" &&
+                JSON.stringify(previous.operation) === JSON.stringify(operation) &&
+                question.tasks.length === previous.tasks.length &&
+                question.tasks.every((task) => previous.tasks.some((t) => t.id === task.id))
+              ) {
+                if (
+                  question.tasks.some(
+                    (task) => !previous.tasks.some((t) => t.version === task.version),
+                  )
+                ) {
+                  const refreshed = refreshQuestion(store, previous);
+                  interaction.respond(refreshed);
+                  return refreshed;
+                }
+                interaction.respond({ reply: "你指的是哪一条？", question: previous });
+                return {
+                  error:
+                    "这些候选项已向用户展示。请根据本轮给出的清单名、日期或标题区分候选项，调用 answerQuestion 传入匹配的任务 ID。如果仍无法区分，请说明缺少的信息。",
+                };
+              }
+              const result = { reply: "你指的是哪一条？", question };
+              interaction.respond(result);
+              return result;
+            },
+          ),
+        ]
+      : []),
+    ...(interaction?.previous
+      ? [
+          taskTool(
+            "answerQuestion",
+            "用用户本轮的自然语言回答上轮问题。若用户按清单或日期指明了哪一条，传入 {answer:{kind:'choose',taskId:匹配的候选ID}}，将执行已记录的操作。截止日期和可选时间用 deadline；跳过用 dismiss。",
+            z.strictObject({ answer: questionAnswer }),
+            async ({ answer }) => {
+              const result = await resolveQuestion(store, port, interaction.previous!, answer);
+              interaction.respond(result);
+              return result;
+            },
+          ),
+        ]
+      : []),
     ...(preview
       ? [
           taskTool(
@@ -102,11 +178,29 @@ export function taskTools(
     taskTool(
       "createTask",
       "创建未完成任务。若已知截止日期、重复、提醒、清单或父任务，用 details 一起保存。",
-      createTaskSchema.extend({ details: detailsSchema.optional() }),
-      ({ title, details }) =>
-        details
-          ? request("POST", undefined, { title, ...details }, "planner/tasks")
-          : request("POST", undefined, { title }),
+      createTaskSchema.extend({
+        details: detailsSchema.optional(),
+        skipDeadlineQuestion: z
+          .boolean()
+          .optional()
+          .describe("仅当用户明确不要截止日期、仅设日期或不想被询问时传 true；未提及时间时省略。"),
+      }),
+      async ({ title, details, skipDeadlineQuestion }) => {
+        const task = details
+          ? await request("POST", undefined, { title, ...details }, "planner/tasks")
+          : await request("POST", undefined, { title });
+        if (interaction && task.id && !skipDeadlineQuestion && !task.dueTime) {
+          const question = deadlineQuestion(store.snapshot(), task.id);
+          if (question?.kind === "deadline")
+            interaction.respond({
+              question,
+              reply: question.task.dueDate
+                ? `已记下「${task.title}」，${question.task.dueDate} 到期。要设具体时间吗？`
+                : `已把「${task.title}」加入${question.task.list}。什么时候需要完成？`,
+            });
+        }
+        return task;
+      },
       true,
     ),
     taskTool(
