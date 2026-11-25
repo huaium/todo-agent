@@ -172,6 +172,58 @@ test("聊天 API 只将有效的完整对话传给智能体，并返回其回复
   assert.deepEqual(conversations, [messages]);
 });
 
+test("持久对话拒绝旧版本的更改，清空对话保留任务", async (t) => {
+  const { request, filename } = await startTestApp(t);
+  const store = createJsonTaskStore(filename);
+  store.create("保留任务");
+  const empty = { revision: 0, messages: [], pending: false };
+  assert.deepEqual((await request("GET", "/api/chat")).body, empty);
+  assert.equal((await request("GET", "/api/chat?after=0")).status, 204);
+  assert.equal(
+    (await request("POST", "/api/chat", { action: "clear", revision: 0 })).body.revision,
+    1,
+  );
+  assert.equal(
+    (await request("POST", "/api/chat", { action: "send", revision: 0, text: "旧请求" })).status,
+    409,
+  );
+  assert.deepEqual((await request("GET", "/api/chat")).body, { ...empty, revision: 1 });
+  assert.equal(store.list()[0].title, "保留任务");
+});
+
+test(
+  "持久对话完成后可重新读取，重复提交旧请求只创建一个任务",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, filename } = await startTestApp(t);
+    const command = { action: "send", revision: 0, text: "添加任务「整理收据」。" };
+    const [a, b] = await Promise.all([
+      request("POST", "/api/chat", command),
+      request("POST", "/api/chat", command),
+    ]);
+    assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+    const saved = (await request("GET", "/api/chat")).body;
+    assert.deepEqual(saved, a.status === 200 ? a.body : b.body);
+    assert.deepEqual(
+      saved.messages.map((m: ChatMessage) => m.role),
+      ["user", "assistant"],
+    );
+    assert.equal(saved.messages[0].content, command.text);
+    assert.match(saved.messages[1].content, /整理收据/);
+    const store = createJsonTaskStore(filename);
+    assert.deepEqual(
+      store.list().map((t) => t.title),
+      ["整理收据"],
+    );
+    const cleared = await request("POST", "/api/chat", {
+      action: "clear",
+      revision: saved.revision,
+    });
+    assert.deepEqual(cleared.body.messages, []);
+    assert.equal(store.list().length, 1);
+  },
+);
+
 test(
   "Pi 通过实时 DeepSeek 对话删除指定任务并保留其他记录",
   {

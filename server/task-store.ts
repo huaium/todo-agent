@@ -30,6 +30,7 @@ const documentSchema = z.object({
 type Database = z.infer<typeof documentSchema> & { tasks: PlannerTask[] };
 type Changes = Partial<Pick<PlannerTask, "title" | "done">> & TaskDetails;
 export interface TaskStore {
+  readonly filename: string;
   list(): PlannerTask[];
   snapshot(): Planner;
   initializeZone(zone: string): void;
@@ -194,6 +195,7 @@ export function createJsonTaskStore(filename: string, now = () => new Date()): T
     return t;
   }
   return {
+    filename,
     list: () => read().tasks,
     snapshot() {
       const { tasks, lists, timeZone } = read();

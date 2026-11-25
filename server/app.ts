@@ -1,6 +1,12 @@
 import { resolve } from "node:path";
 import express, { type ErrorRequestHandler } from "express";
-import { chatRequestSchema, type ChatMessage } from "../shared/chat.ts";
+import {
+  chatRequestSchema,
+  conversationCommand,
+  type ChatMessage,
+  type ViewContext,
+} from "../shared/chat.ts";
+import { interruptedReply, openConversation, recentContext } from "./conversation.ts";
 import type { TaskStore } from "./task-store.ts";
 import { taskRouter } from "./tasks.ts";
 import { reply as agentReply } from "./agent.ts";
@@ -18,27 +24,77 @@ interface AppDependencies {
 export function createApp({ reply, tasks }: AppDependencies) {
   const app = express();
   const bulk = bulkPreviews(tasks);
+  const chat = openConversation(tasks.filename + ".chat.json");
   app.use(express.json({ limit: "1mb" }));
 
-  app.post("/api/chat", async (req, res) => {
-    const input = chatRequestSchema.safeParse(req.body);
-    if (!input.success) {
-      return res.status(400).json({ error: "请提供对话记录，并以用户消息结尾。" });
-    }
+  async function respond(messages: ChatMessage[], port: number, view?: ViewContext) {
     let preview: BulkPreview | undefined;
     const { tasks: current, lists, timeZone } = tasks.snapshot();
     const answer = reply
-      ? await reply(input.data.messages)
+      ? await reply(messages)
       : await agentReply(
-          input.data.messages,
-          taskTools(req.socket.localPort!, tasks, (ids, date) => {
+          messages,
+          taskTools(port, tasks, (ids, date) => {
             preview = bulk.preview(ids, date);
             return preview;
           }),
           current,
-          { view: input.data.context, lists, timeZone },
+          { view, lists, timeZone },
         );
-    res.json({ reply: answer, preview });
+    return { reply: answer, preview };
+  }
+
+  app.get("/api/chat", (req, res) => {
+    const state = chat.read();
+    res.set("Cache-Control", "no-store");
+    return req.query.after === String(state.revision) ? res.sendStatus(204) : res.json(state);
+  });
+  app.post("/api/chat", async (req, res) => {
+    const port = req.socket.localPort!;
+    if (req.body?.action === undefined) {
+      const input = chatRequestSchema.safeParse(req.body);
+      if (!input.success)
+        return res.status(400).json({ error: "请提供对话记录，并以用户消息结尾。" });
+      return res.json(await respond(input.data.messages, port, input.data.context));
+    }
+    const command = conversationCommand.parse(req.body);
+    const current = chat.read();
+    if (current.revision !== command.revision || current.pending)
+      return res.status(409).json({ error: "对话已更新，请查看最新消息。" });
+    if (command.action === "clear") {
+      if (current.preview) bulk.discard(current.preview.token);
+      return res.json(chat.save({ messages: [], pending: false }));
+    }
+    if (command.action === "send") {
+      const messages: ChatMessage[] = [
+        ...current.messages,
+        { role: "user", content: command.text },
+      ];
+      chat.save({ messages, pending: true });
+      if (current.preview) bulk.discard(current.preview.token);
+      let result: Awaited<ReturnType<typeof respond>>;
+      try {
+        result = await respond(recentContext(messages), port, command.context);
+      } catch (error) {
+        chat.appendReply(interruptedReply);
+        throw error;
+      }
+      return res.json(chat.appendReply(result.reply, result.preview));
+    }
+    const preview = current.preview;
+    if (!preview || preview.token !== command.token)
+      return res.status(409).json({ error: "改期预览已变更。" });
+    if (command.action === "cancel") {
+      bulk.discard(preview.token);
+      return res.json(chat.appendReply("已取消改期。"));
+    }
+    try {
+      bulk.confirm(preview.token);
+    } catch (error) {
+      if (error instanceof PlannerError) chat.appendReply(error.message);
+      throw error;
+    }
+    return res.json(chat.appendReply(`已将 ${preview.titles.length} 条任务改到 ${preview.date}。`));
   });
 
   app.use("/api/tasks", taskRouter(tasks));
@@ -60,7 +116,7 @@ const handleApiError: ErrorRequestHandler = (error, _req, res, _next) => {
     return res.status(400).json({ error: "请求需要使用有效的 JSON。" });
   }
   if (error.type === "entity.too.large") {
-    return res.status(413).json({ error: "对话太长，请刷新后开始新的对话。" });
+    return res.status(413).json({ error: "请求内容过长，请缩短后再发送。" });
   }
   console.error(error);
   res.status(500).json({ error: "服务暂时无法处理请求，请稍后重试。" });

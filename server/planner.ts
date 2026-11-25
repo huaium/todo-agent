@@ -25,6 +25,9 @@ export function bulkPreviews(store: TaskStore) {
     });
   }
   return {
+    discard(token: string) {
+      pending.delete(token);
+    },
     preview(ids: string[], date: string): BulkPreview {
       ids = [...new Set(ids)];
       const tasks = records(ids);
