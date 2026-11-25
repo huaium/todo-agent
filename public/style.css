@@ -183,15 +183,13 @@ textarea {
   font-size: 20px;
 }
 .tag-cloud,
-.list-editor,
-.filters {
+.list-editor {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
 }
 .tag-cloud button,
 .list-editor button,
-.filters select,
 .toolbar > button,
 .rail-foot button,
 .editor button,
@@ -276,11 +274,54 @@ textarea {
   outline: 0;
 }
 .filters {
-  padding: 10px 18px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px clamp(14px, 2.4vw, 38px);
   border-bottom: 1px solid var(--line);
 }
-.filters select {
+.filter-field {
+  position: relative;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: var(--slate);
   font-size: 12px;
+}
+.filter-field select {
+  appearance: none;
+  width: 100%;
+  padding: 7px 26px 7px 10px;
+  line-height: 20px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--panel);
+  border-color: var(--line);
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.filter-field::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: 16px;
+  width: 6px;
+  height: 6px;
+  border: solid currentColor;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+.filter-field select[data-active] {
+  border-color: #a9c2e8;
+  background: #f4f8ff;
+  color: var(--blue);
+  font-weight: 600;
+}
+@media (hover: hover) {
+  .filter-field select:hover {
+    border-color: var(--muted);
+  }
 }
 .selected-filter {
   color: var(--blue);
@@ -861,6 +902,17 @@ textarea {
   }
 }
 @media (max-width: 760px) {
+  .filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 10px 12px;
+  }
+  .filter-field select {
+    min-height: 44px;
+    font-size: 16px;
+  }
+  .filter-field::after {
+    bottom: 20px;
+  }
   .planner-app {
     display: block;
   }

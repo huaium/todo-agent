@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { inbox, pendingReminder } from "../shared/planner.ts";
 import { priorities } from "../shared/task.ts";
 import { TaskList } from "./TaskList.tsx";
@@ -13,6 +13,34 @@ const views = [
   ["all", "全部", "☷"],
   ["done", "已完成", "✓"],
 ] as const;
+
+function FilterField({
+  label,
+  value,
+  onChange,
+  children,
+}: {
+  label: string;
+  value: string;
+  onChange(value: string): void;
+  children: ReactNode;
+}) {
+  return (
+    <label className="filter-field">
+      <span>{label}</span>
+      <select
+        aria-label={`按${label}筛选`}
+        data-active={value !== "" || undefined}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">全部</option>
+        {children}
+      </select>
+    </label>
+  );
+}
+
 export default function App() {
   const { data, ready, error, setError, act, changed, today, due } = usePlanner();
   const [view, setView] = useState("today");
@@ -260,46 +288,30 @@ export default function App() {
           </button>
         </div>
         {filters && (
-          <div className="filters">
-            <select
-              aria-label="按清单筛选"
-              value={listFilter}
-              onChange={(e) => setListFilter(e.target.value)}
-            >
-              <option value="">所有清单</option>
+          <div className="filters" role="group" aria-label="任务筛选">
+            <FilterField label="清单" value={listFilter} onChange={setListFilter}>
               {data.lists.map((l) => (
                 <option key={l.id} value={l.id}>
                   {l.name}
                 </option>
               ))}
-            </select>
-            <select aria-label="按标签筛选" value={tag} onChange={(e) => setTag(e.target.value)}>
-              <option value="">所有标签</option>
+            </FilterField>
+            <FilterField label="标签" value={tag} onChange={setTag}>
               {tags.map((t) => (
                 <option key={t}>{t}</option>
               ))}
-            </select>
-            <select
-              aria-label="按优先级筛选"
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-            >
-              <option value="">所有优先级</option>
+            </FilterField>
+            <FilterField label="优先级" value={priority} onChange={setPriority}>
               {priorities.map((p) => (
                 <option key={p} value={p}>
-                  {p}优先级
+                  {p}
                 </option>
               ))}
-            </select>
-            <select
-              aria-label="按完成状态筛选"
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-            >
-              <option value="">所有状态</option>
+            </FilterField>
+            <FilterField label="完成状态" value={status} onChange={setStatus}>
               <option value="open">待办</option>
               <option value="done">已完成</option>
-            </select>
+            </FilterField>
           </div>
         )}
         <div className="list-scroll" hidden={!!selectedTask}>
