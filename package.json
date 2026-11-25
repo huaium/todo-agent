@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "storage:export": "node server/storage-export.ts",
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
     "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && tailwindcss -i src/theme.css -o dist/theme.css --minify",
     "start": "node --env-file-if-exists=.env server/index.ts",
