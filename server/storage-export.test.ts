@@ -3,7 +3,12 @@ import { mkdtempSync, rmSync, statSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { openDatabase, readConversation, readPlannerDocument } from "./database.ts";
+import {
+  importLegacyDatabase,
+  openDatabase,
+  readConversation,
+  readPlannerDocument,
+} from "./database.ts";
 import { createTaskStore } from "./task-store.ts";
 import { openConversation } from "./conversation.ts";
 import { deadlineQuestion } from "./chat-questions.ts";
@@ -49,6 +54,7 @@ test("rollback export preserves post-cutover data and refuses an existing destin
   for (const file of ["tasks.json", "tasks.json.chat.json"])
     assert.equal(statSync(join(target, file)).mode & 0o777, 0o600);
   assert.throws(() => exportStorage(dir, target), /EEXIST/);
+  importLegacyDatabase(target);
   const imported = openDatabase(target);
   assert.deepEqual(readPlannerDocument(imported), planner);
   assert.deepEqual(readConversation(imported), history);

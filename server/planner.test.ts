@@ -4,14 +4,17 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskStore } from "./task-store.ts";
-import { openDatabase } from "./database.ts";
+import { importLegacyDatabase, openDatabase } from "./database.ts";
 import { nextDate, localMinute } from "../shared/planner.ts";
 import { bulkPreviews } from "./planner.ts";
 async function fixture(t: TestContext, legacy?: unknown) {
   const dir = await mkdtemp(join(tmpdir(), "planner-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const file = join(dir, "tasks.json");
-  if (legacy) await writeFile(file, JSON.stringify(legacy));
+  if (legacy) {
+    await writeFile(file, JSON.stringify(legacy));
+    importLegacyDatabase(dir);
+  }
   const db = openDatabase(dir);
   t.after(() => db.close());
   const store = createTaskStore(db, () => new Date("2026-01-30T10:00:00Z"));

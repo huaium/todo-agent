@@ -9,7 +9,7 @@ import { test, type TestContext } from "node:test";
 import type { ChatMessage } from "../shared/chat.ts";
 import { createApp } from "./app.ts";
 import { createTaskStore } from "./task-store.ts";
-import { openDatabase } from "./database.ts";
+import { importLegacyDatabase, openDatabase } from "./database.ts";
 import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
 import { candidate } from "./chat-questions.ts";
@@ -105,7 +105,10 @@ async function startTestApp(
 ) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  if (legacy) await writeFile(join(directory, "tasks.json"), JSON.stringify(legacy));
+  if (legacy) {
+    await writeFile(join(directory, "tasks.json"), JSON.stringify(legacy));
+    importLegacyDatabase(directory);
+  }
   const db = openDatabase(directory);
   t.after(() => db.close());
   const store = createTaskStore(db, now);

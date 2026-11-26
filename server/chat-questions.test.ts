@@ -10,7 +10,7 @@ import { createApp } from "./app.ts";
 import { choiceQuestion, deadlineQuestion } from "./chat-questions.ts";
 import { openConversation } from "./conversation.ts";
 import { createTaskStore, type TaskStore } from "./task-store.ts";
-import { openDatabase } from "./database.ts";
+import { importLegacyDatabase, openDatabase } from "./database.ts";
 import { choiceDescription } from "../shared/task-choice.ts";
 
 test("duplicate subtask choices show parent paths and refresh after a parent rename", async (t) => {
@@ -203,6 +203,7 @@ test("imported questions retain legacy task hashes and stale candidates stay sta
   };
   await writeFile(join(dir, "tasks.json"), JSON.stringify(planner));
   await writeFile(join(dir, "tasks.json.chat.json"), JSON.stringify(legacy));
+  importLegacyDatabase(dir);
   const db = openDatabase(dir);
   t.after(() => db.close());
   const store = createTaskStore(db);

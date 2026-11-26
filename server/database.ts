@@ -85,14 +85,22 @@ function readLegacy<T>(path: string, empty: T, decode: (value: unknown) => T): T
   }
 }
 
-export function readLegacyFiles(directory: string) {
-  const empty: PlannerDocument = {
+function emptyPlanner(): PlannerDocument {
+  return {
     version: 1,
     timeZone: null,
     lists: [{ id: inbox, name: "收件箱" }],
     tasks: [],
     series: {},
   };
+}
+
+function emptyChat(): Conversation {
+  return { revision: 0, pending: false, messages: [] };
+}
+
+export function readLegacyFiles(directory: string) {
+  const empty = emptyPlanner();
   const planner = readLegacy(join(directory, "tasks.json"), empty, (value) => {
     if (Array.isArray(value)) {
       const tasks = tasksSchema.parse(value);
@@ -105,7 +113,7 @@ export function readLegacyFiles(directory: string) {
   });
   const chat = readLegacy<Conversation>(
     join(directory, "tasks.json.chat.json"),
-    { revision: 0, pending: false, messages: [] },
+    emptyChat(),
     (value) => {
       const parsed = conversationSchema.parse(value);
       // Validate legacy input without trimming stored message content during import.
@@ -122,8 +130,34 @@ export function readLegacyFiles(directory: string) {
   const creationOrder = readLegacy(join(directory, "tasks.order.json"), fallbackOrder, (value) =>
     z.array(z.string()).parse(value),
   );
-  deepStrictEqual(creationOrder.toSorted(), fallbackOrder.toSorted());
   return { planner, chat, bin, creationOrder };
+}
+
+function hasLegacyFiles(directory: string) {
+  return ["tasks.json", "tasks.json.chat.json", "tasks.bin.json", "tasks.order.json"].some((file) =>
+    existsSync(join(directory, file)),
+  );
+}
+
+export function importLegacyDatabase(directory: string) {
+  const filename = join(directory, "planner.sqlite");
+  if (existsSync(filename)) throw new Error("Planner database already exists: " + filename);
+  if (!hasLegacyFiles(directory)) throw new Error("No legacy planner files in " + directory);
+  const snapshot = readLegacyFiles(directory);
+  const ids = [
+    ...snapshot.planner.tasks.map((t) => t.id),
+    ...snapshot.bin.map((entry) => entry.task.id),
+  ];
+  const current = new Set(ids);
+  const saved = new Set(snapshot.creationOrder);
+  if (current.size !== ids.length || saved.size !== snapshot.creationOrder.length)
+    throw new Error("Duplicate task ID in legacy planner or creation order");
+  // Older versions edit tasks without updating the exported creation-order file.
+  snapshot.creationOrder = [
+    ...snapshot.creationOrder.filter((id) => current.has(id)),
+    ...ids.filter((id) => !saved.has(id)),
+  ];
+  publishDatabase(directory, filename, snapshot);
 }
 
 const creationSchema = `
@@ -248,8 +282,11 @@ const schema = `
   CREATE TABLE conversation(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, pending INTEGER NOT NULL CHECK(pending IN (0,1)), preview TEXT) STRICT;
   CREATE TABLE messages(seq INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, question TEXT, sort_change TEXT) STRICT;
 `;
-function importDatabase(directory: string, filename: string) {
-  const { planner, chat, bin, creationOrder } = readLegacyFiles(directory);
+function publishDatabase(
+  directory: string,
+  filename: string,
+  { planner, chat, bin, creationOrder }: ReturnType<typeof readLegacyFiles>,
+) {
   const staging = mkdtempSync(join(directory, ".sqlite-import-"));
   const path = join(staging, "planner.sqlite");
   try {
@@ -314,7 +351,18 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
   const filename = join(directory, "planner.sqlite");
   if (!readOnly && !existsSync(filename)) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    importDatabase(directory, filename);
+    if (hasLegacyFiles(directory))
+      throw new Error(
+        "Legacy planner files found. Run npm run storage:import -- " +
+          JSON.stringify(directory) +
+          " before starting.",
+      );
+    publishDatabase(directory, filename, {
+      planner: emptyPlanner(),
+      chat: emptyChat(),
+      bin: [],
+      creationOrder: [],
+    });
   }
   const db = new DatabaseSync(filename, { readOnly });
   try {
