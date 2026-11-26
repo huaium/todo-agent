@@ -1,4 +1,7 @@
 .planner-app {
+  --card-gutter: 16px;
+  --card-end-padding: 12px;
+  --card-radius: var(--radius-3xl, 20px);
   --motion-quick: 150ms;
   --motion-pane: 200ms;
   --motion-ease: cubic-bezier(0.2, 0.75, 0.25, 1);
@@ -226,6 +229,7 @@
 }
 .task-section {
   margin-block: 22px;
+  container-type: inline-size;
 }
 .task-section h2 {
   display: flex;
@@ -246,13 +250,40 @@
 .reminders,
 .preview {
   background: var(--surface);
-  border-radius: var(--radius-3xl, 20px);
+  border-radius: var(--card-radius);
   box-shadow: var(--surface-shadow);
-  padding: 12px 16px;
+  padding: var(--card-end-padding) var(--card-gutter);
 }
 .task-row {
   min-height: 62px;
-  border-radius: var(--radius);
+}
+.task-row[data-task-id] {
+  position: relative;
+  isolation: isolate;
+}
+/* Anchor the tint at the shared right gutter so indented subtasks also span the card. */
+.task-row[data-task-id]::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset-inline-end: calc(-1 * var(--card-gutter));
+  inline-size: 100cqi;
+  inset-block: var(--hover-top, 0px) var(--hover-bottom, 0px);
+  border-radius: var(--hover-top-radius, 0px) var(--hover-top-radius, 0px)
+    var(--hover-bottom-radius, 0px) var(--hover-bottom-radius, 0px);
+}
+.task-section > ul > li:first-child > .task-row {
+  --hover-top: calc(-1 * var(--card-end-padding));
+  --hover-top-radius: var(--card-radius);
+}
+.task-section > ul > li:last-child {
+  --hover-bottom: calc(-1 * var(--card-end-padding));
+  --hover-bottom-radius: var(--card-radius);
+}
+.nested > li:not(:last-child),
+.task-row:has(~ .nested) {
+  --hover-bottom: 0px;
+  --hover-bottom-radius: 0px;
 }
 .list-scroll {
   position: relative;
@@ -263,11 +294,11 @@
   z-index: 1;
   background: var(--surface);
 }
-.task-row:focus-within {
+.task-row:focus-within::before {
   background-color: color-mix(in srgb, var(--default) 45%, transparent);
 }
 @media (hover: hover) {
-  .task-row:hover {
+  .task-row:hover::before {
     background-color: color-mix(in srgb, var(--default) 45%, transparent);
   }
 }
@@ -466,7 +497,7 @@
   opacity: 0;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .task-row {
+  .task-row::before {
     transition: background-color 100ms ease-out;
   }
   .filter-disclosure {
