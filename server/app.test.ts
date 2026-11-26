@@ -102,6 +102,33 @@ async function startTestApp(
   return { request, store, port, directory };
 }
 
+test("批量删除只将确认时选中的已完成任务移入回收站，允许重试和恢复", async (t) => {
+  const { request, store } = await startTestApp(t);
+  const parent = store.create("准备会议");
+  const child = store.create("检查投影", { parentId: parent.id });
+  const pending = store.create("整理现场", { parentId: parent.id });
+  const reopened = store.create("复核名单");
+  const recurring = store.create("每日签到", { repeat: "daily", dueDate: "2030-01-01" });
+  const completedIds = [parent.id, child.id, reopened.id, recurring.id];
+  for (const id of completedIds) store.update(id, { done: true });
+  store.update(reopened.id, { done: false });
+  const later = store.create("新完成的任务");
+  store.update(later.id, { done: true });
+  assert.equal((await request("DELETE", "/api/planner/tasks", {})).status, 400);
+  for (let i = 0; i < 2; i++)
+    assert.equal((await request("DELETE", "/api/planner/tasks", { completedIds })).status, 204);
+  const bin = store.bin();
+  assert.deepEqual(bin.map((item) => item.id).sort(), [parent.id, child.id, recurring.id].sort());
+  const snapshot = store.list();
+  assert.ok(snapshot.some((task) => task.id === pending.id && !task.parentId));
+  assert.ok(snapshot.some((task) => task.id === reopened.id && !task.done));
+  assert.ok(snapshot.some((task) => task.id === later.id && task.done));
+  assert.ok(snapshot.some((task) => task.title === recurring.title && !task.done));
+  for (const id of [parent.id, child.id])
+    assert.ok(store.restore(id, bin.find((item) => item.id === id)!.deletedAt));
+  assert.equal(store.list().find((task) => task.id === child.id)?.parentId, parent.id);
+});
+
 test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
   const { request } = await startTestApp(t);
   const collection = "/api/tasks";

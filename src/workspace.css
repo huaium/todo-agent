@@ -284,6 +284,9 @@
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
+.delete-completed {
+  margin-inline-start: auto;
+}
 .view-head p {
   margin-top: 8px;
   font-size: 0.8125rem;

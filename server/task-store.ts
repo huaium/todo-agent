@@ -46,6 +46,7 @@ export interface TaskStore {
     expectedVersion?: string,
   ): PlannerTask | undefined;
   remove(id: string): boolean;
+  removeCompleted(ids: string[]): void;
   bin(): BinItem[];
   restore(id: string, deletedAt: number): boolean;
   deleteBinItem(id: string, deletedAt: number): boolean;
@@ -106,6 +107,24 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
   }
   function save(task: PlannerTask) {
     put.run(task.id, JSON.stringify(task));
+  }
+  function moveToBin(task: PlannerTask) {
+    const series =
+      task.seriesId && !task.done
+        ? db.prepare("SELECT payload FROM series WHERE id=?").get(task.seriesId)
+        : undefined;
+    db.prepare("INSERT INTO task_bin(id,deleted_at,payload,series) VALUES(?,?,?,?)").run(
+      task.id,
+      now().getTime(),
+      JSON.stringify(task),
+      series?.payload ?? null,
+    );
+    db.prepare("DELETE FROM tasks WHERE id=?").run(task.id);
+    for (const child of matching(byParent, task.id)) {
+      delete child.parentId;
+      save(child);
+    }
+    if (task.seriesId && !task.done) db.prepare("DELETE FROM series WHERE id=?").run(task.seriesId);
   }
   function zone() {
     return String(
@@ -357,24 +376,14 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
       return transaction(db, () => {
         const removed = get(id);
         if (!removed) return false;
-        const series =
-          removed.seriesId && !removed.done
-            ? db.prepare("SELECT payload FROM series WHERE id=?").get(removed.seriesId)
-            : undefined;
-        db.prepare("INSERT INTO task_bin(id,deleted_at,payload,series) VALUES(?,?,?,?)").run(
-          id,
-          now().getTime(),
-          JSON.stringify(removed),
-          series?.payload ?? null,
-        );
-        db.prepare("DELETE FROM tasks WHERE id=?").run(id);
-        for (const p of matching(byParent, id)) {
-          delete p.parentId;
-          save(p);
-        }
-        if (typeof removed.seriesId === "string" && !removed.done)
-          db.prepare("DELETE FROM series WHERE id=?").run(removed.seriesId);
+        moveToBin(removed);
         return true;
+      });
+    },
+    removeCompleted(ids) {
+      transaction(db, () => {
+        const completed = this.search({ visibleIds: ids, done: true }, 0, ids.length);
+        for (const task of completed) moveToBin(task);
       });
     },
     purgeExpired,

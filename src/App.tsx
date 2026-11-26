@@ -91,6 +91,7 @@ export default function App() {
   const [listName, setListName] = useState("");
   const [deleteList, setDeleteList] = useState(false);
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
+  const [completedToDelete, setCompletedToDelete] = useState<string[] | null>(null);
   const listMenu = useRef<HTMLButtonElement>(null);
   const [notifications, setNotifications] = useState<keyof typeof notificationControls>(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
@@ -587,6 +588,18 @@ export default function App() {
                   </Dropdown.Popover>
                 </Dropdown>
               )}
+              {view === "done" && (
+                <IconButton
+                  className="delete-completed"
+                  variant="danger-soft"
+                  icon="trash"
+                  label="删除全部已完成任务"
+                  isDisabled={!ready || !data.tasks.some((t) => t.done)}
+                  onPress={() =>
+                    setCompletedToDelete(data.tasks.filter((t) => t.done).map((t) => t.id))
+                  }
+                />
+              )}
               <SortMenu choice={sort} methods={taskMethods} onChange={changeSort} />
             </div>
             <form className="capture" onSubmit={create}>
@@ -649,6 +662,16 @@ export default function App() {
           />
         )}
       </main>
+      {completedToDelete && (
+        <ConfirmAction
+          open
+          title={`删除全部 ${completedToDelete.length} 项已完成任务？`}
+          consequence="所有清单中已完成的任务都将移入回收站，包括被筛选条件隐藏的任务。可在 30 天内恢复。"
+          action="移入回收站"
+          close={() => setCompletedToDelete(null)}
+          confirm={() => act("planner/tasks", "DELETE", { completedIds: completedToDelete })}
+        />
+      )}
       {deleteTask && (
         <ConfirmAction
           key={deleteTask.id}

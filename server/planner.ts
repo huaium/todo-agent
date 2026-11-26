@@ -94,6 +94,13 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
       .parse(req.body);
     res.status(201).json(store.create(title, details));
   });
+  router.delete("/tasks", (req, res) => {
+    const { completedIds } = z
+      .strictObject({ completedIds: z.array(z.string().min(1)).min(1) })
+      .parse(req.body);
+    store.removeCompleted(completedIds);
+    res.sendStatus(204);
+  });
   router.post("/tasks/order", (req, res) => {
     if (req.body?.anchorId !== undefined) {
       const { id, anchorId, side, expected } = z
