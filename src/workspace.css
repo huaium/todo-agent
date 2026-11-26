@@ -743,6 +743,15 @@
 .editor-actions {
   flex-wrap: wrap;
 }
+.autosave-status {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  overflow-wrap: anywhere;
+}
+.autosave-status[data-error="true"] {
+  color: var(--danger);
+}
 .editor {
   container-type: inline-size;
 }

@@ -1,21 +1,26 @@
-import { useState, type FormEvent } from "react";
+import { useImperativeHandle, useState, type FormEvent, type Ref } from "react";
 import { Button, Checkbox, Input, Label, Surface, TextArea, TextField } from "@heroui/react";
 import { ChoiceField, options } from "./PlannerControls.tsx";
 import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
 import { efforts, priorities } from "../shared/task.ts";
-import {
-  frequencies,
-  inbox,
-  repeatLabels,
-  type Planner,
-  type PlannerTask,
-} from "../shared/planner.ts";
+import { frequencies, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
+import { useTaskAutosave } from "./useTaskAutosave.ts";
+
+const saveLabels = {
+  idle: "自动保存已开启",
+  pending: "等待保存…",
+  saving: "正在保存…",
+  saved: "已自动保存",
+  error: "未能保存",
+};
 
 export function TaskEditor({
   task,
   data,
   act,
+  changed,
+  flushRef,
   close,
   open,
   requestDelete,
@@ -23,72 +28,26 @@ export function TaskEditor({
   task: PlannerTask;
   data: Planner;
   act: Action;
+  changed(): Promise<void>;
+  flushRef: Ref<() => Promise<boolean>>;
   close(): void;
   open(id: string): void;
   requestDelete(id: string): void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [saveError, setSaveError] = useState("");
   const [child, setChild] = useState("");
   const [childError, setChildError] = useState("");
   const [scope, setScope] = useState<"one" | "future">("one");
   const children = data.tasks.filter((t) => t.parentId === task.id);
-  const [original] = useState(() => ({
-    title: task.title,
-    notes: task.notes ?? "",
-    tags: (task.tags ?? []).join("，"),
-    listId: task.listId ?? inbox,
-    parentId: task.parentId ?? "",
-    dueDate: task.dueDate ?? "",
-    dueTime: task.dueTime ?? "",
-    reminder: task.reminder ?? "",
-    priority: typeof task.priority === "string" ? task.priority : "",
-    effort: typeof task.effort === "string" ? task.effort : "",
-    repeat: task.repeat ?? "",
-    starred: !!task.starred,
-  }));
-  const [draft, setDraft] = useState(original);
+  const { draft, edit, state, error, flush, discard, startComposition, endComposition } =
+    useTaskAutosave(task, scope, changed);
+  useImperativeHandle(flushRef, () => flush, [flush]);
   function set<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
-    setDraft((old) => ({ ...old, [key]: value }));
+    edit({ [key]: value });
   }
   const zone = data.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const repeatLocked =
     !!children.length || !!task.parentId || task.done || (!!task.repeat && scope === "one");
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (busy) return;
-    setSaveError("");
-    const changes: Record<string, unknown> = {};
-    for (const key of Object.keys(original) as (keyof typeof original)[]) {
-      if (key === "repeat" && repeatLocked) continue;
-      const initial = original[key];
-      const edited = draft[key];
-      const value = typeof edited === "string" ? edited.trim() : edited;
-      if (value === initial) continue;
-      changes[key] =
-        key === "tags"
-          ? String(value)
-              .split(/[,，]/u)
-              .map((v) => v.trim())
-              .filter(Boolean)
-          : value === "" && key !== "notes"
-            ? null
-            : value;
-    }
-    if (!draft.title.trim()) {
-      setSaveError("请输入任务名称。");
-      return;
-    }
-    if ("dueDate" in changes && task.reminder && !("reminder" in changes))
-      changes.reminder = task.reminder;
-    if (Object.keys(changes).length) {
-      setBusy(true);
-      const ok = await act("planner/tasks/" + task.id, "PATCH", { changes, scope }, setSaveError);
-      setBusy(false);
-      if (!ok) return;
-    }
-    close();
-  }
   async function addChild(e: FormEvent) {
     e.preventDefault();
     if (!child.trim() || busy) return;
@@ -103,12 +62,28 @@ export function TaskEditor({
   return (
     <section className="editor">
       <div className="section-top">
-        <h2>任务详情</h2>
+        <div>
+          <h2>任务详情</h2>
+          <p className="autosave-status" role="status" data-error={state === "error"}>
+            {saveLabels[state]}
+            {state === "error" && ` · ${error}`}
+          </p>
+        </div>
         <Button variant="tertiary" autoFocus onPress={close}>
           返回清单
         </Button>
       </div>
-      <form onSubmit={save}>
+      {state === "error" && (
+        <div className="editor-actions">
+          <Button size="sm" variant="secondary" onPress={() => void flush()}>
+            重试
+          </Button>
+          <Button size="sm" variant="ghost" onPress={discard}>
+            放弃未保存的更改
+          </Button>
+        </div>
+      )}
+      <div onCompositionStart={startComposition} onCompositionEnd={endComposition}>
         <Surface className="fields">
           <h3 className="wide">任务信息</h3>
           <TextField
@@ -172,9 +147,7 @@ export function TaskEditor({
             label="截止日期"
             zone={zone}
             value={draft.dueDate}
-            onChange={(dueDate) =>
-              setDraft((old) => ({ ...old, dueDate, dueTime: dueDate ? old.dueTime : "" }))
-            }
+            onChange={(dueDate) => edit(dueDate ? { dueDate } : { dueDate, dueTime: "" })}
           />
           <PlannerTime
             label="截止时间"
@@ -199,7 +172,9 @@ export function TaskEditor({
                 { value: "one", label: "仅本次" },
                 { value: "future", label: "本次及以后" },
               ]}
-              onChange={(v) => setScope(v === "future" ? "future" : "one")}
+              onChange={async (v) => {
+                if (await flush()) setScope(v === "future" ? "future" : "one");
+              }}
             />
           )}
           <ChoiceField
@@ -213,16 +188,18 @@ export function TaskEditor({
             onChange={(v) => set("repeat", v)}
           />
         </Surface>
-        {saveError && <p role="alert">{saveError}</p>}
         <div className="wide editor-actions">
-          <Button type="submit" isPending={busy}>
-            保存更改
-          </Button>
-          <Button variant="danger-soft" isDisabled={busy} onPress={() => requestDelete(task.id)}>
+          <Button
+            variant="danger-soft"
+            isDisabled={busy}
+            onPress={async () => {
+              if (await flush()) requestDelete(task.id);
+            }}
+          >
             删除任务
           </Button>
         </div>
-      </form>
+      </div>
       {!task.repeat && (
         <Surface className="child-editor">
           <h3>子任务</h3>

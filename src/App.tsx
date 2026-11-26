@@ -58,6 +58,7 @@ export default function App() {
   }
   const [pane, setPane] = useState("list");
   const [selected, setSelected] = useState<string | null>(null);
+  const flushEditor = useRef<() => Promise<boolean>>(null);
   const [tag, setTag] = useState("");
   const [priority, setPriority] = useState("");
   const [listFilter, setListFilter] = useState("");
@@ -129,7 +130,11 @@ export default function App() {
           .toLocaleLowerCase()
           .includes(query.trim().toLocaleLowerCase())),
   );
-  function navigate(v: string, nextTag = "") {
+  async function navigate(v: string, nextTag = "") {
+    if (flushEditor.current && !(await flushEditor.current())) {
+      setPane("editor");
+      return;
+    }
     setView(v);
     setTag(nextTag);
     setPriority("");
@@ -139,11 +144,13 @@ export default function App() {
     setSelected(null);
     setPane("list");
   }
-  function open(id: string) {
+  async function open(id: string) {
+    if (flushEditor.current && !(await flushEditor.current())) return;
     setSelected(id);
     setPane("editor");
   }
-  function back() {
+  async function back() {
+    if (flushEditor.current && !(await flushEditor.current())) return;
     setSelected(null);
     setPane("list");
     requestAnimationFrame(() => {
@@ -631,6 +638,8 @@ export default function App() {
             task={selectedTask}
             data={data}
             act={act}
+            changed={changed}
+            flushRef={flushEditor}
             close={back}
             open={open}
             requestDelete={setDeleteTaskId}
