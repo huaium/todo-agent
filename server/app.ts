@@ -205,6 +205,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
   app.use(handleApiError);
 
   app.use(express.static(resolve("public")));
+  app.use("/assets/speech", express.static(resolve("dist/speech")));
   app.get("/assets/chat.js", (_req, res) => res.sendFile(resolve("dist/chat.js")));
   app.get("/assets/initial-theme.js", (_req, res) =>
     res.sendFile(resolve("dist/initial-theme.js")),

@@ -6,7 +6,8 @@
   "scripts": {
     "storage:export": "node server/storage-export.ts",
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
-    "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && tailwindcss -i src/theme.css -o dist/theme.css --minify",
+    "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && npm run build:speech && tailwindcss -i src/theme.css -o dist/theme.css --minify",
+    "build:speech": "esbuild src/speech/recognize.ts --bundle --format=esm --minify --outdir=dist/speech && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.* dist/speech/",
     "start": "node --env-file-if-exists=.env server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
     "test": "node --test server/*.test.ts",
@@ -21,6 +22,7 @@
     "@earendil-works/pi-ai": "1.6.0",
     "@heroui/react": "3.2.8",
     "@heroui/styles": "3.2.8",
+    "@huggingface/transformers": "4.3.2",
     "@internationalized/date": "3.12.4",
     "express": "^5.3.0",
     "motion": "14.14.0",
