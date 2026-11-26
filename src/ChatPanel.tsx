@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { Button, Dropdown, Label, TextArea } from "@heroui/react";
+import { useEffect, useEffectEvent, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { flushSync } from "react-dom";
+import { Button, Dropdown, Label, Modal, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { ChatSettings, useSendShortcut } from "./ChatSettings.tsx";
@@ -37,13 +38,13 @@ const modeLabels = { allow: "全部允许", cautious: "审慎模式" } satisfies
 export function ChatPanel({
   context,
   changed,
-  close,
+  focusRef,
   sortContext,
   applySort,
 }: {
   context: ViewContext;
   changed(): Promise<void>;
-  close(): void;
+  focusRef: Ref<() => void>;
   sortContext: Omit<NonNullable<ViewContext["sorting"]>, "tab">;
   applySort(change: SortChange): void;
 }) {
@@ -65,6 +66,19 @@ export function ChatPanel({
   const mode = state?.approvalMode ?? "allow";
   const approval = state?.approval;
   const input = useRef<HTMLTextAreaElement>(null);
+  const launcher = useRef<HTMLButtonElement>(null);
+  const [narrowScreen] = useState(() => matchMedia("(max-width: 760px)"));
+  const [mobile, setMobile] = useState(narrowScreen.matches);
+  const [sheetOpen, setSheetOpen] = useState(false);
+  function focusComposer() {
+    if (mobile && !sheetOpen) {
+      launcher.current?.focus({ preventScroll: true });
+      // Mount and focus during the tap so mobile keyboards recognize the user gesture.
+      flushSync(() => setSheetOpen(true));
+    }
+    input.current?.focus({ preventScroll: true });
+  }
+  useImperativeHandle(focusRef, () => focusComposer);
   const voice = useDictation((text) => {
     setDraft((previous) =>
       previous && !/\s$/u.test(previous) ? previous + " " + text : previous + text,
@@ -72,6 +86,19 @@ export function ChatPanel({
     if (input.current?.offsetParent) input.current.focus();
   });
   const voiceActive = voice.phase !== "idle";
+  const onBreakpointChange = useEffectEvent(() => {
+    setMobile(narrowScreen.matches);
+    setSheetOpen(false);
+    if (narrowScreen.matches) {
+      if (voiceActive) voice.cancel();
+      setShowModel(false);
+      setClearRevision(null);
+    }
+  });
+  useEffect(() => {
+    narrowScreen.addEventListener("change", onBreakpointChange);
+    return () => narrowScreen.removeEventListener("change", onBreakpointChange);
+  }, [narrowScreen]);
   const tooLong = draft.length > 16000;
   function openModel() {
     voice.cancel();
@@ -107,8 +134,12 @@ export function ChatPanel({
     if (!preview || !state || busy) return;
     await submit({ action, token: preview.token, revision: state.revision });
   }
-  return (
-    <aside className="chat-pane" aria-label="小明对话">
+  function dismissSheet() {
+    if (voiceActive) voice.cancel();
+    setSheetOpen(false);
+  }
+  const content = (
+    <>
       <div className="pane-head">
         <img src="/logo.png" alt="" />
         <strong>小明</strong>
@@ -158,17 +189,11 @@ export function ChatPanel({
             onPress={() => setClearRevision(state.revision)}
           />
         )}
-        <Button
-          size="sm"
-          variant="tertiary"
-          className="mobile-only"
-          onPress={() => {
-            if (voiceActive) voice.cancel();
-            close();
-          }}
-        >
-          返回清单
-        </Button>
+        {mobile && (
+          <Button isIconOnly size="sm" variant="ghost" aria-label="关闭聊天" onPress={dismissSheet}>
+            <span aria-hidden="true">×</span>
+          </Button>
+        )}
       </div>
       <ConfirmAction
         open={clearRevision !== null}
@@ -193,10 +218,75 @@ export function ChatPanel({
           pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}
           disabled={busy || voiceActive}
+          scrollActions={mobile}
           onAnswer={(questionId, answer) =>
             void submit({ action: "answer", revision: state.revision, questionId, answer })
           }
-        />
+        >
+          {preview && (
+            <div className="preview">
+              <strong>批量改期 · {preview.titles.length} 条</strong>
+              <p>
+                {preview.date} · {preview.titles.join("、")}
+              </p>
+              <Button size="sm" isDisabled={busy} onPress={() => applyPreview("confirm")}>
+                确认改期
+              </Button>{" "}
+              <Button
+                size="sm"
+                variant="tertiary"
+                isDisabled={busy}
+                onPress={() => applyPreview("cancel")}
+              >
+                取消
+              </Button>
+            </div>
+          )}
+          {state && approval && (
+            <section className="preview approval-card" aria-label="待审批的更改">
+              <strong>等待审批</strong>
+              <div className="approval-details" aria-live="polite">
+                <p>{approval.title}</p>
+                {approval.details.length > 0 && (
+                  <ul>
+                    {approval.details.map((detail, i) => (
+                      <li key={i}>{detail}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <Button
+                size="sm"
+                isDisabled={!!active}
+                onPress={() =>
+                  void submit({
+                    action: "review",
+                    revision: state.revision,
+                    token: approval.token,
+                    allow: true,
+                  })
+                }
+              >
+                允许此次更改
+              </Button>{" "}
+              <Button
+                size="sm"
+                variant="tertiary"
+                isDisabled={!!active}
+                onPress={() =>
+                  void submit({
+                    action: "review",
+                    revision: state.revision,
+                    token: approval.token,
+                    allow: false,
+                  })
+                }
+              >
+                取消
+              </Button>
+            </section>
+          )}
+        </ChatHistory>
       ) : (
         <div className="scroll thread" role="status">
           {error ? (
@@ -207,69 +297,6 @@ export function ChatPanel({
             "正在读取对话…"
           )}
         </div>
-      )}
-      {preview && (
-        <div className="preview">
-          <strong>批量改期 · {preview.titles.length} 条</strong>
-          <p>
-            {preview.date} · {preview.titles.join("、")}
-          </p>
-          <Button size="sm" isDisabled={busy} onPress={() => applyPreview("confirm")}>
-            确认改期
-          </Button>{" "}
-          <Button
-            size="sm"
-            variant="tertiary"
-            isDisabled={busy}
-            onPress={() => applyPreview("cancel")}
-          >
-            取消
-          </Button>
-        </div>
-      )}
-      {state && approval && (
-        <section className="preview approval-card" aria-label="待审批的更改">
-          <strong>等待审批</strong>
-          <div className="approval-details" aria-live="polite">
-            <p>{approval.title}</p>
-            {approval.details.length > 0 && (
-              <ul>
-                {approval.details.map((detail, i) => (
-                  <li key={i}>{detail}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <Button
-            size="sm"
-            isDisabled={!!active}
-            onPress={() =>
-              void submit({
-                action: "review",
-                revision: state.revision,
-                token: approval.token,
-                allow: true,
-              })
-            }
-          >
-            允许此次更改
-          </Button>{" "}
-          <Button
-            size="sm"
-            variant="tertiary"
-            isDisabled={!!active}
-            onPress={() =>
-              void submit({
-                action: "review",
-                revision: state.revision,
-                token: approval.token,
-                allow: false,
-              })
-            }
-          >
-            取消
-          </Button>
-        </section>
       )}
       <form
         className="composer"
@@ -370,6 +397,46 @@ export function ChatPanel({
           </Button>
         </div>
       </form>
-    </aside>
+    </>
+  );
+  if (!mobile)
+    return (
+      <aside className="chat-pane" aria-label="小明对话">
+        {content}
+      </aside>
+    );
+  return (
+    <>
+      <div className="chat-dock">
+        <Button
+          ref={launcher}
+          className="chat-launcher"
+          variant="tertiary"
+          aria-label="打开小明智能体对话"
+          aria-haspopup="dialog"
+          aria-expanded={sheetOpen}
+          aria-keyshortcuts="Control+/ Meta+/"
+          onPress={focusComposer}
+        >
+          <img src="/logo.png" alt="" />
+          <strong>小明智能体</strong>
+          <span>{draft.trim() || "输入消息…"}</span>
+        </Button>
+      </div>
+      <Modal.Backdrop
+        className="chat-backdrop"
+        isOpen={sheetOpen}
+        isDismissable
+        onOpenChange={(open) => {
+          if (!open) dismissSheet();
+        }}
+      >
+        <Modal.Container className="chat-sheet-container" placement="bottom">
+          <Modal.Dialog className="chat-pane chat-sheet" aria-label="小明对话">
+            {content}
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+    </>
   );
 }

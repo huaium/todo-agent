@@ -57,6 +57,7 @@ export default function App() {
     publishTaskRows(data.tasks, () => selectSort(choice));
   }
   const [pane, setPane] = useState("list");
+  const focusChat = useRef<() => void>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const flushEditor = useRef<() => Promise<boolean>>(null);
   const [tag, setTag] = useState("");
@@ -103,7 +104,7 @@ export default function App() {
     "收件箱";
   const selectedTask = data.tasks.find((t) => t.id === selected);
   const editing = !!selectedTask;
-  usePlannerKeyboard(editing, setPane);
+  usePlannerKeyboard(editing, setPane, focusChat);
   const deleteTask = data.tasks.find((t) => t.id === deleteTaskId);
   const tags = [...new Set(data.tasks.flatMap((t) => t.tags ?? []))].sort();
   const filterTags = tag && !tags.includes(tag) ? [tag, ...tags] : tags;
@@ -454,9 +455,6 @@ export default function App() {
               onPress={() => setFilters(!filters)}
             />
           )}
-          <Button variant="secondary" className="mobile-only" onPress={() => setPane("chat")}>
-            小明
-          </Button>
         </div>
         {!showBin && !editing && (
           <div id="task-filters" className="filter-disclosure" inert={!filters}>
@@ -703,7 +701,7 @@ export default function App() {
           selectedId: selectedTask?.id ?? null,
         }}
         changed={changed}
-        close={() => setPane(selectedTask ? "editor" : "list")}
+        focusRef={focusChat}
       />
     </div>
   );

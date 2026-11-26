@@ -628,14 +628,10 @@
   }
 }
 @media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
-  .planner-app[data-pane="nav"] .rail,
-  .planner-app[data-pane="chat"] .chat-pane {
+  .planner-app[data-pane="nav"] .rail {
     --enter-x: -10px;
     --enter-y: 0px;
     animation: planner-reveal var(--motion-pane) var(--motion-ease);
-  }
-  .planner-app[data-pane="chat"] .chat-pane {
-    --enter-x: 10px;
   }
 }
 @keyframes chat-fade-in {
@@ -857,26 +853,24 @@
 }
 @media (max-width: 760px) {
   .planner-app {
-    display: block;
+    grid-template: minmax(0, 1fr) auto / minmax(0, 1fr);
   }
   .rail,
-  .planner-main,
-  .chat-pane {
+  .planner-main {
     height: 100%;
   }
-  .rail,
-  .chat-pane {
+  .rail {
     display: none;
   }
   .mobile-only {
     display: inline-flex !important;
   }
-  .planner-app[data-pane="nav"] .rail,
-  .planner-app[data-pane="chat"] .chat-pane {
+  .planner-app[data-pane="nav"] .rail {
     display: flex;
+    grid-row: 1 / -1;
   }
   .planner-app[data-pane="nav"] .planner-main,
-  .planner-app[data-pane="chat"] .planner-main {
+  .planner-app[data-pane="nav"] .chat-dock {
     display: none;
   }
   .filters {
@@ -896,8 +890,94 @@
     min-width: 44px;
     min-height: 44px;
   }
-  .chat-pane {
+  .chat-dock {
+    padding: 8px max(12px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom))
+      max(12px, env(safe-area-inset-left));
+    background: var(--surface);
+    border-top: 1px solid var(--separator);
+  }
+  .chat-launcher {
+    width: 100%;
+    min-height: 48px;
+    justify-content: flex-start;
+    gap: 10px;
+    padding-inline: 12px;
+  }
+  .chat-launcher img {
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+  }
+  .chat-launcher span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--muted);
+    font-weight: 400;
+  }
+  .chat-launcher strong {
+    flex: none;
+  }
+  .chat-backdrop {
+    background: color-mix(in srgb, black 28%, transparent);
+  }
+  .chat-sheet-container {
+    width: 100%;
+    padding: 0;
+  }
+  .chat-sheet {
+    width: 100%;
+    max-width: none;
+    height: min(640px, max(70%, min(13rem, calc(100% - 24px))));
+    container: mobile-chat / size;
     border: 0;
+    border-radius: 22px 22px 0 0;
+    padding: 0;
+    overflow: hidden;
+  }
+  @container mobile-chat (max-height: 260px) {
+    .chat-key-hints {
+      display: none;
+    }
+    .composer textarea {
+      min-height: 52px;
+      height: 52px;
+    }
+  }
+  .chat-sheet .pane-head {
+    flex-wrap: nowrap;
+    gap: 4px;
+    min-height: 56px;
+    padding-block: 4px;
+  }
+  .chat-sheet .pane-head .button--icon-only,
+  .chat-sheet .composer-actions .button--icon-only {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .chat-sheet .pane-head button[aria-label="关闭聊天"] {
+    font-size: 1.375rem;
+  }
+  .chat-sheet .scroll {
+    overscroll-behavior: contain;
+  }
+  @media (pointer: coarse) {
+    .chat-sheet .chat-key-hints {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .chat-sheet-container[data-placement="bottom"][data-entering] {
+      animation: chat-sheet-in 180ms ease-out;
+    }
+    @keyframes chat-sheet-in {
+      from {
+        transform: translateY(2rem);
+      }
+      to {
+        transform: translateY(0);
+      }
+    }
   }
   .task-row {
     gap: 3px;
