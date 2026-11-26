@@ -11,7 +11,6 @@ const themes = {
 export function ThemeControl() {
   const [mode, setMode] = useState(readTheme);
   const { label, next } = themes[mode];
-  const description = `主题 · ${label}，切换到${themes[next].label}`;
 
   useLayoutEffect(() => {
     const sync = () => applyTheme(mode);
@@ -52,7 +51,7 @@ export function ThemeControl() {
       size="sm"
       onPress={cycleTheme}
       icon={mode}
-      label={description}
+      label={`主题 · ${label}`}
     />
   );
 }
