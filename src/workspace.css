@@ -145,7 +145,6 @@
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  padding-inline-start: calc(var(--spacing) * 3);
 }
 .notification-control[aria-disabled="true"] {
   pointer-events: auto;
