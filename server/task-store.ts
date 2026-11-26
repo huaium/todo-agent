@@ -35,8 +35,25 @@ export interface TaskStore {
 function fail(message: string): never {
   throw new PlannerError(message);
 }
-function shiftedReminder(reminder: string | null | undefined, days: number) {
-  return reminder ? offsetDate(reminder.slice(0, 10), days) + reminder.slice(10) : reminder;
+function shiftedReminder(reminder: PlannerTask["reminder"], fromDate: string, toDate: string) {
+  if (!reminder) return reminder;
+  const days = dayDistance(fromDate, toDate);
+  return offsetDate(reminder.slice(0, 10), days) + reminder.slice(10);
+}
+function updateSeriesTemplate(series: Series, task: PlannerTask, delta: Changes) {
+  const template = series.template;
+  const baseDate = delta.dueDate ?? task.occurrenceDate ?? task.dueDate!;
+  // Keep the reminder offset relative to the occurrence being edited.
+  template.reminder = shiftedReminder(template.reminder, template.dueDate!, baseDate);
+  template.dueDate = baseDate;
+  Object.assign(template, delta);
+  if (delta.reminder && task.dueDate)
+    template.reminder = shiftedReminder(delta.reminder, task.dueDate, baseDate);
+  if (delta.repeat) series.frequency = delta.repeat;
+  if (delta.dueDate || delta.repeat) {
+    series.anchor = task.dueDate!;
+    task.occurrenceDate = task.dueDate!;
+  }
 }
 export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskStore {
   const byId = db.prepare("SELECT payload FROM tasks WHERE id=?");
@@ -113,7 +130,7 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
     ) {
       t.reminder =
         t.dueDate && before.dueDate
-          ? shiftedReminder(before.reminder, dayDistance(before.dueDate, t.dueDate))
+          ? shiftedReminder(before.reminder, before.dueDate, t.dueDate)
           : null;
     }
     if (
@@ -125,6 +142,16 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
       delete t.notifiedAt;
       delete t.snoozeUntil;
     }
+    updateRecurrence(t, before, delta, scope);
+    save(t);
+    return t;
+  }
+  function updateRecurrence(
+    t: PlannerTask,
+    before: PlannerTask,
+    delta: Changes,
+    scope: "one" | "future",
+  ) {
     const hasSchedule = t.dueDate || (before.seriesId && scope === "one" && t.occurrenceDate);
     if (t.repeat && (!hasSchedule || t.parentId || byParent.get(t.id)))
       fail("重复任务需要截止日期，且必须是独立任务。");
@@ -146,22 +173,7 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         delete t.seriesId;
         series = undefined;
       } else {
-        const template: PlannerTask = series.template;
-        const baseDate = delta.dueDate ?? t.occurrenceDate ?? t.dueDate!;
-        // Keep the reminder offset relative to the occurrence being edited.
-        template.reminder = shiftedReminder(
-          template.reminder,
-          dayDistance(template.dueDate!, baseDate),
-        );
-        template.dueDate = baseDate;
-        Object.assign(template, delta);
-        if (delta.reminder && t.dueDate)
-          template.reminder = shiftedReminder(delta.reminder, dayDistance(t.dueDate, baseDate));
-        if (delta.repeat) series.frequency = delta.repeat;
-        if (delta.dueDate || delta.repeat) {
-          series.anchor = t.dueDate!;
-          t.occurrenceDate = t.dueDate!;
-        }
+        updateSeriesTemplate(series, t, delta);
         putSeries.run(before.seriesId, JSON.stringify(series));
       }
     }
@@ -184,7 +196,7 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         repeat: series.frequency,
         dueDate: date,
         occurrenceDate: date,
-        reminder: shiftedReminder(template.reminder, dayDistance(template.dueDate!, date)),
+        reminder: shiftedReminder(template.reminder, template.dueDate!, date),
       };
       delete next.successorId;
       delete next.snoozeUntil;
@@ -192,8 +204,6 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
       t.successorId = next.id;
       save(next);
     }
-    save(t);
-    return t;
   }
   function writeOrder(previous: string[], ordered: string[]) {
     const slots = db
