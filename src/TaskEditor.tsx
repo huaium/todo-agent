@@ -6,6 +6,7 @@ import { efforts, priorities } from "../shared/task.ts";
 import { frequencies, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { fieldLabels, useTaskAutosave } from "./useTaskAutosave.ts";
+import { TagPicker } from "./TagPicker.tsx";
 
 const saveLabels = {
   idle: "自动保存已开启",
@@ -17,6 +18,7 @@ const saveLabels = {
 
 export function TaskEditor({
   task,
+  availableTags,
   data,
   act,
   changed,
@@ -26,6 +28,7 @@ export function TaskEditor({
   requestDelete,
 }: {
   task: PlannerTask;
+  availableTags: string[];
   data: Planner;
   act: Action;
   changed(): Promise<void>;
@@ -140,10 +143,7 @@ export function TaskEditor({
             choices={data.lists.map((l) => ({ value: l.id, label: l.name }))}
             onChange={(v) => set("listId", v)}
           />
-          <TextField value={draft.tags} onChange={(v) => set("tags", v)}>
-            <Label>标签</Label>
-            <Input placeholder="用逗号分隔" />
-          </TextField>
+          <TagPicker tags={draft.tags} available={availableTags} onChange={(v) => set("tags", v)} />
           <ChoiceField
             label="优先级"
             value={draft.priority}

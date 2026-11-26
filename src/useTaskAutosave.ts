@@ -6,7 +6,7 @@ function fields(task: PlannerTask) {
   return {
     title: task.title,
     notes: task.notes ?? "",
-    tags: (task.tags ?? []).join("，"),
+    tags: task.tags ?? [],
     listId: task.listId ?? inbox,
     parentId: task.parentId ?? "",
     dueDate: task.dueDate ?? "",
@@ -42,23 +42,16 @@ async function versionOf(task: PlannerTask) {
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 type SaveState = "idle" | "pending" | "saving" | "saved" | "error";
-function tags(value: string) {
-  return value
-    .split(/[,，]/u)
-    .map((tag) => tag.trim())
-    .filter(Boolean);
-}
-function normalized(key: Field, value: Draft[Field]) {
-  if (typeof value !== "string") return value;
-  return key === "tags" ? [...new Set(tags(value))].join("，") : value.trim();
+function comparable(value: Draft[Field]) {
+  if (Array.isArray(value)) return JSON.stringify(value);
+  return typeof value === "string" ? value.trim() : value;
 }
 function changesSince(saved: Draft, draft: Draft) {
   const changes: Record<string, unknown> = {};
   for (const key of Object.keys(saved) as Field[]) {
-    const value = normalized(key, draft[key]);
-    if (value === normalized(key, saved[key])) continue;
-    changes[key] =
-      key === "tags" ? tags(String(value)) : value === "" && key !== "notes" ? null : value;
+    const value = comparable(draft[key]);
+    if (value === comparable(saved[key])) continue;
+    changes[key] = key === "tags" ? draft.tags : value === "" && key !== "notes" ? null : value;
   }
   if ("dueDate" in changes && saved.reminder && !("reminder" in changes))
     changes.reminder = saved.reminder;
@@ -92,9 +85,9 @@ export function useTaskAutosave(
     const next = fields(task);
     const merged = { ...current.current };
     for (const key of Object.keys(next) as Field[]) {
-      const local = normalized(key, current.current[key]);
-      const previous = normalized(key, expected[key]);
-      const incoming = normalized(key, next[key]);
+      const local = comparable(current.current[key]);
+      const previous = comparable(expected[key]);
+      const incoming = comparable(next[key]);
       if (local === incoming) blocked.current.delete(key);
       else if (local === previous && !blocked.current.has(key))
         Object.assign(merged, { [key]: next[key] });

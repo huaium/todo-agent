@@ -1,6 +1,8 @@
 import type { Task } from "./task.ts";
 
 export const inbox = "inbox";
+export const maxTagLength = 60;
+export const maxTaskTags = 50;
 export const frequencies = ["daily", "weekly", "monthly", "yearly"] as const;
 export type Frequency = (typeof frequencies)[number];
 export const repeatLabels: Record<Frequency, string> = {

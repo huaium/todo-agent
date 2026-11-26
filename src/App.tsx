@@ -635,6 +635,7 @@ export default function App() {
           <TaskEditor
             key={selectedTask.id}
             task={selectedTask}
+            availableTags={tags}
             data={data}
             act={act}
             changed={changed}

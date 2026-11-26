@@ -769,6 +769,55 @@
 .editor .time-field__group {
   width: 100%;
 }
+.tag-picker {
+  min-width: 0;
+}
+.tag-input {
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.tag-input > input {
+  flex: 1 1 7em;
+  width: 0;
+  min-width: min(7em, 100%);
+  min-height: 1.5rem;
+  height: auto;
+  padding: 0 4px;
+}
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 2px;
+  padding-inline: 8px 2px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-soft-foreground);
+  font-size: 0.8125rem;
+}
+.tag-pill > span {
+  overflow-wrap: anywhere;
+}
+.tag-pill button {
+  flex: none;
+  width: 24px;
+  min-height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.tag-pill button:is(:hover, :focus-visible) {
+  background: color-mix(in oklab, currentColor 12%, transparent);
+}
+.tag-pill button:focus-visible {
+  outline: 2px solid var(--focus);
+}
+@media (pointer: coarse) {
+  .tag-pill button {
+    width: 32px;
+    min-height: 32px;
+  }
+}
 @container (max-width: 480px) {
   .schedule {
     grid-template-columns: minmax(0, 1fr);
