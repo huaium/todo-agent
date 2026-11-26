@@ -418,6 +418,13 @@
   font-size: 0.75rem;
   overflow-wrap: anywhere;
 }
+.mobile-due,
+.metadata:where(:has(> .mobile-due:only-child)) {
+  display: none;
+}
+.detail-text + .detail-text::before {
+  content: " · ";
+}
 .task-row .star.active {
   color: var(--accent);
 }
@@ -981,6 +988,59 @@
   }
   .task-row {
     gap: 3px;
+  }
+  .task-entry {
+    display: grid;
+    grid-template-columns: auto [title] minmax(0, 1fr) auto auto;
+    align-content: center;
+    row-gap: 0;
+    padding-block: 4px;
+  }
+  .task-entry:has(> .reorder-grip) {
+    grid-template-columns: 44px auto [title] minmax(0, 1fr) auto auto;
+  }
+  .task-entry .row-text {
+    display: contents;
+  }
+  .task-entry .title-button {
+    grid-column: title;
+    justify-self: start;
+  }
+  .task-entry .desktop-due {
+    display: none;
+  }
+  .task-entry .metadata {
+    grid-area: 2 / title / auto / -1;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 14px;
+    padding-bottom: 4px;
+    overflow: clip;
+    overflow-clip-margin: 4px;
+    font-size: 0.8125rem;
+    line-height: 1.125rem;
+  }
+  .task-detail {
+    flex: none;
+    max-width: 100%;
+    position: relative;
+  }
+  .task-entry .mobile-due {
+    display: inline;
+    font: inherit;
+    white-space: nowrap;
+  }
+  /* A separator sits in the gap and is clipped at the start of each wrapped line. */
+  .task-entry .task-detail::before {
+    content: "";
+    position: absolute;
+    inset-inline-end: calc(100% + 6px);
+    inset-block-start: 0.5rem;
+    width: 2px;
+    height: 2px;
+    border-radius: 50%;
+    background: var(--muted);
   }
   .composer {
     margin-bottom: max(10px, env(safe-area-inset-bottom));

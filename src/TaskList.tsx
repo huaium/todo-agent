@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { Button, Checkbox, Dropdown, Label } from "@heroui/react";
-import { inbox, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
+import {
+  inbox,
+  offsetDate,
+  repeatLabels,
+  type Planner,
+  type PlannerTask,
+} from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ReorderTasks, type RowControls } from "./ReorderTasks.tsx";
@@ -30,6 +36,7 @@ export function TaskList({
   act,
 }: Props) {
   const manual = sort.method === "manual";
+  const tomorrow = offsetDate(today, 1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [confirmation, setConfirmation] = useState<TaskNotice>();
   const groups = new Map<string, PlannerTask[]>();
@@ -83,6 +90,19 @@ export function TaskList({
       (t) => groupIds.has(t.id) && !ancestors.has(t.id),
     );
     const list = lists.find((l) => l.id === (task.listId ?? inbox));
+    const dueLabel = task.dueDate === today ? "今天" : task.dueDate?.slice(5);
+    function deadline(label: string | undefined, layout: string) {
+      if (!task.dueDate) return null;
+      return (
+        <time
+          dateTime={task.dueTime ? task.dueDate + "T" + task.dueTime : task.dueDate}
+          className={layout + (task.dueDate < today && !task.done ? " overdue" : "")}
+        >
+          {label}
+          {task.dueTime && " " + task.dueTime}
+        </time>
+      );
+    }
     const meta = [
       view !== "list:" + list?.id && list?.name,
       task.repeat && repeatLabels[task.repeat],
@@ -91,7 +111,7 @@ export function TaskList({
     return (
       <>
         <div
-          className={"task-row" + (task.done ? " completed" : "")}
+          className={"task-row task-entry" + (task.done ? " completed" : "")}
           data-task-id={task.id}
           data-parent-row={ancestors.size ? [...ancestors].join("/") : undefined}
           data-row-action={deleting === task.id || undefined}
@@ -113,9 +133,14 @@ export function TaskList({
             <Button variant="ghost" className="title-button" onPress={() => open(task.id)}>
               {task.title}
             </Button>
-            {(meta.length > 0 || children.length > 0) && (
+            {(task.dueDate || meta.length > 0 || children.length > 0) && (
               <div className="metadata">
-                {meta.join(" · ")}{" "}
+                {deadline(task.dueDate === tomorrow ? "明天" : dueLabel, "mobile-due task-detail")}
+                {meta.map((text, index) => (
+                  <span key={index} className="task-detail detail-text">
+                    {text}
+                  </span>
+                ))}{" "}
                 {children.length > 0 && (
                   <Button
                     size="sm"
@@ -135,11 +160,7 @@ export function TaskList({
               </div>
             )}
           </div>
-          {task.dueDate && (
-            <time className={task.dueDate < today && !task.done ? "overdue" : ""}>
-              {task.dueDate === today ? "今天" : task.dueDate.slice(5)} {task.dueTime}
-            </time>
-          )}
+          {deadline(dueLabel, "desktop-due")}
           <Button
             variant="ghost"
             isIconOnly
