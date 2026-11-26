@@ -250,15 +250,12 @@ export function ChatPanel({
         }}
       >
         {error && <p role="alert">{error}</p>}
-        <div className="chat-key-hints">
-          <KeyHint keys="F6">切换面板</KeyHint>
-          {!busy && (
-            <>
-              <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
-              <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
-            </>
-          )}
-        </div>
+        {!busy && (
+          <div className="chat-key-hints">
+            <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
+            <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
+          </div>
+        )}
         <TextArea
           variant="secondary"
           ref={input}
@@ -266,7 +263,6 @@ export function ChatPanel({
           value={draft}
           readOnly={busy}
           aria-label="消息"
-          aria-keyshortcuts="F6"
           placeholder="告诉小明你想做什么…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
