@@ -130,7 +130,14 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
         if (
           result.isError ||
           (writes.has(result.toolName) &&
-            !["createTask", "updateTask", "deleteTask", "setTaskDetails"].includes(result.toolName))
+            ![
+              "createTask",
+              "updateTask",
+              "deleteTask",
+              "setTaskDetails",
+              "moveTaskRelative",
+              "snoozeReminder",
+            ].includes(result.toolName))
         )
           keepNote = true;
         if (result.isError || (writes.has(result.toolName) && result.toolName !== "createTask"))

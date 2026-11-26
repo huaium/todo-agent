@@ -581,24 +581,110 @@
   min-width: 0;
   margin-top: 8px;
 }
-.chat-receipt {
-  margin-top: 8px;
-}
-.chat-receipt ul {
-  margin-top: 8px;
-  padding-inline-start: 12px;
-  border-inline-start: 2px solid var(--border);
-}
-.chat-receipt li {
-  display: grid;
+.chat-task-card,
+.preview.chat-action-card {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: none;
+  background: var(--surface);
   overflow-wrap: anywhere;
+  min-width: 0;
 }
-.chat-receipt li + li {
+.chat-task-card {
+  display: grid;
+  gap: 8px;
+}
+.message > * + .chat-task-card {
   margin-top: 8px;
 }
-.chat-receipt small {
+.chat-task-card header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.card-mark {
+  color: var(--accent-soft-foreground);
+}
+.chat-task-card > .button {
+  justify-self: start;
+}
+.chat-task-card ul:empty {
+  display: none;
+}
+.chat-task-card li + li,
+.card-question {
+  border-top: 1px solid var(--border);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+.card-task-link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: start;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.card-task-link strong,
+.chat-task-card li > strong {
+  font-weight: 600;
+}
+.card-task-link span {
+  color: var(--muted);
+}
+.card-task-link:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.card-task-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+.chat-task-card small,
+.card-deadline {
+  display: block;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  font-size: 0.8125rem;
+}
+.card-deadline {
+  color: var(--foreground);
+}
+.card-deadline del {
+  color: var(--muted);
+}
+.card-question p,
+.chat-prompt > p {
+  font-size: 0.875rem;
+}
+.chat-task-card .chat-question form {
+  padding: 0;
+  background: transparent;
+}
+.chat-task-card .deadline-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chat-task-card .deadline-choices[inert] {
+  display: none;
+}
+.chat-action-card > p {
+  max-height: 16dvh;
+  overflow: auto;
+}
+@media (max-width: 760px) {
+  .card-task-link,
+  .chat-task-card .button,
+  .chat-action-card .button {
+    min-height: 44px;
+  }
 }
 .deadline-choices[inert] {
   position: absolute;

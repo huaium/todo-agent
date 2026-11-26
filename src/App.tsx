@@ -38,8 +38,20 @@ export default function App() {
   const view =
     query.trim() && activeView !== "bin" && !activeView.startsWith("list:") ? "all" : activeView;
   const showBin = view === "bin";
-  const { data, bin, ready, refreshRevision, error, setError, act, changed, refresh, today, due } =
-    usePlanner(showBin);
+  const {
+    data,
+    bin,
+    ready,
+    refreshRevision,
+    error,
+    setError,
+    act,
+    changed,
+    refresh,
+    readForEditor,
+    today,
+    due,
+  } = usePlanner(showBin);
   const [sort, selectSort] = useViewSort(
     activeView,
     taskMethods,
@@ -712,6 +724,16 @@ export default function App() {
         }}
       />
       <ChatPanel
+        openTask={async (id) => {
+          if (flushEditor.current && !(await flushEditor.current()))
+            return "当前任务尚未保存，请先处理编辑器中的提示。";
+          const current = await readForEditor();
+          if (!current) return "暂时无法读取任务，请重试。";
+          if (!current.tasks.some((task) => task.id === id)) return "任务已不在清单中。";
+          if (showBin) setView("all");
+          setSelected(id);
+          setPane("editor");
+        }}
         sortContext={{
           ...(showBin ? binSort : sort),
           viewKey: activeView,

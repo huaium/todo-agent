@@ -1,37 +1,73 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
-import type { ChatMessage, CreatedTask, QuestionAnswer } from "../shared/chat.ts";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ChatMessage, QuestionAnswer, TaskCard } from "../shared/chat.ts";
+import { ChatTaskCard, type OpenChatTask } from "./ChatTaskCard.tsx";
 import { QuestionControls } from "./QuestionControls.tsx";
 import { Button, Spinner } from "@heroui/react";
 
 const examplePrompts = ["帮我记一下买牛奶", "看看我的待办", "今天有哪些任务到期？"];
 
-function CreatedTaskList({ tasks }: { tasks: CreatedTask[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const listId = useId();
+function AssistantReply({
+  message,
+  current,
+  showingPreview,
+  disabled,
+  onAnswer,
+  openTask,
+}: Pick<ChatHistoryProps, "disabled" | "onAnswer" | "openTask" | "showingPreview"> & {
+  message: ChatMessage;
+  current: boolean;
+}) {
+  const q = current ? message.question : undefined;
+  const controls = q && (
+    <QuestionControls
+      key={q.id}
+      question={q}
+      disabled={disabled}
+      onAnswer={(answer) => onAnswer(q.id, answer)}
+    />
+  );
+  const legacy = message.createdTasks;
+  const cards: TaskCard[] =
+    message.presentation?.cards ??
+    (legacy
+      ? [{ kind: "created", tasks: legacy.map((task) => ({ ...task, list: "", done: false })) }]
+      : []);
+  const attached =
+    q?.kind === "deadline" ? cards.findIndex((c) => c.tasks.some((t) => t.id === q.task.id)) : -1;
+  let text = cards.length ? message.presentation?.note : message.content;
+  if (legacy && !message.presentation) {
+    // Older batch receipts put additional outcomes on the lines following their summary.
+    text = message.content.startsWith(`已添加 ${legacy.length} 项任务。`)
+      ? message.content.split("\n").slice(1).join("\n")
+      : message.content;
+  }
+  const previewOnly = current && showingPreview && !message.presentation?.note;
   return (
-    <section className="chat-receipt">
-      <Button
-        size="sm"
-        variant="tertiary"
-        aria-expanded={expanded}
-        aria-controls={listId}
-        onPress={() => setExpanded(!expanded)}
-      >
-        {expanded ? "收起" : "查看"} {tasks.length} 项
-      </Button>
-      <ul id={listId} hidden={!expanded}>
-        {tasks.map(({ id, title, dueDate, dueTime }) => (
-          <li key={id}>
-            <span>{title}</span>
-            <small>{[dueDate, dueTime].filter(Boolean).join(" ") || "未设日期"}</small>
-          </li>
-        ))}
-      </ul>
-    </section>
+    <>
+      {text && !previewOnly && (cards.length > 0 || !controls) && <div>{text}</div>}
+      {cards.map((card, i) => (
+        <ChatTaskCard key={i} card={card} openTask={openTask}>
+          {i === attached && q?.kind === "deadline" && (
+            <div className="card-question">
+              <p>{q.task.dueDate ? "要设具体时间吗？" : "什么时候需要完成？"}</p>
+              {controls}
+            </div>
+          )}
+        </ChatTaskCard>
+      ))}
+      {controls && attached === -1 && (
+        <section className="chat-task-card chat-prompt">
+          <p>{message.content}</p>
+          {controls}
+        </section>
+      )}
+    </>
   );
 }
 
 interface ChatHistoryProps {
+  openTask: OpenChatTask;
+  showingPreview: boolean;
   children: ReactNode;
   scrollActions: boolean;
   messages: ChatMessage[];
@@ -42,6 +78,8 @@ interface ChatHistoryProps {
 }
 
 export function ChatHistory({
+  openTask,
+  showingPreview,
   children,
   scrollActions,
   messages,
@@ -91,20 +129,18 @@ export function ChatHistory({
                 aria-label={message.role === "user" ? "发出的消息" : "收到的回复"}
                 data-new={index >= restoredCount || undefined}
               >
-                <div>{message.content}</div>
-                {message.role === "assistant" && message.createdTasks && (
-                  <CreatedTaskList tasks={message.createdTasks} />
+                {message.role === "user" ? (
+                  <div>{message.content}</div>
+                ) : (
+                  <AssistantReply
+                    message={message}
+                    current={index === messages.length - 1}
+                    showingPreview={showingPreview}
+                    openTask={openTask}
+                    disabled={disabled}
+                    onAnswer={onAnswer}
+                  />
                 )}
-                {index === messages.length - 1 &&
-                  message.role === "assistant" &&
-                  message.question && (
-                    <QuestionControls
-                      key={message.question.id}
-                      question={message.question}
-                      disabled={disabled}
-                      onAnswer={(answer) => onAnswer(message.question!.id, answer)}
-                    />
-                  )}
               </div>
             ))}
             {pending && (

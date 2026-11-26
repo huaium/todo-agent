@@ -36,12 +36,14 @@ const modeLabels = { allow: "全部允许", cautious: "审慎模式" } satisfies
   string
 >;
 export function ChatPanel({
+  openTask,
   context,
   changed,
   focusRef,
   sortContext,
   applySort,
 }: {
+  openTask(id: string): Promise<string | undefined>;
   context: ViewContext;
   changed(): Promise<void>;
   focusRef: Ref<() => void>;
@@ -63,6 +65,17 @@ export function ChatPanel({
     ? [...state!.messages, { role: "user", content: active.text }]
     : (state?.messages ?? []);
   const preview = !sending && state?.preview;
+  const expiresAt = preview ? preview.expiresAt : undefined;
+  const [expiredAt, setExpiredAt] = useState<number>();
+  useEffect(() => {
+    if (!expiresAt) return;
+    const timer = window.setTimeout(
+      () => setExpiredAt(expiresAt),
+      Math.max(0, expiresAt - Date.now()),
+    );
+    return () => clearTimeout(timer);
+  }, [expiresAt]);
+  const expired = !!expiresAt && (expiredAt === expiresAt || Date.now() >= expiresAt);
   const mode = state?.approvalMode ?? "allow";
   const approval = state?.approval;
   const input = useRef<HTMLTextAreaElement>(null);
@@ -214,6 +227,12 @@ export function ChatPanel({
       <ModelDownload model={speechModel} open={showModel} close={() => setShowModel(false)} />
       {state ? (
         <ChatHistory
+          openTask={async (id) => {
+            const error = await openTask(id);
+            if (!error && mobile) dismissSheet();
+            return error;
+          }}
+          showingPreview={!!preview}
           messages={history}
           pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}
@@ -223,9 +242,14 @@ export function ChatPanel({
             void submit({ action: "answer", revision: state.revision, questionId, answer })
           }
         >
-          {preview && (
-            <div className="preview">
-              <strong>批量改期 · {preview.titles.length} 条</strong>
+          {preview && expired && (
+            <p className="preview chat-action-card" role="status">
+              改期预览已过期，请重新预览。
+            </p>
+          )}
+          {preview && !expired && (
+            <div className="preview chat-action-card">
+              <strong>待确认改期 · {preview.titles.length} 项</strong>
               <p>
                 {preview.date} · {preview.titles.join("、")}
               </p>
@@ -243,7 +267,7 @@ export function ChatPanel({
             </div>
           )}
           {state && approval && (
-            <section className="preview approval-card" aria-label="待审批的更改">
+            <section className="preview approval-card chat-action-card" aria-label="待审批的更改">
               <strong>等待审批</strong>
               <div className="approval-details" aria-live="polite">
                 <p>{approval.title}</p>

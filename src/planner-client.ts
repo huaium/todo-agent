@@ -41,13 +41,15 @@ export function usePlanner(showBin: boolean) {
   const opened = useRef(new Date());
   const alerts = useRef(new Map<string, { at: string; notification: Notification }>());
   const load = useCallback(
-    async (mode: "refresh" | "saved" | "reorder") => {
+    async (mode: "refresh" | "saved" | "reorder", force = false) => {
       const ticket = ++serial.current;
       try {
         const previous = lastResults.current;
         const path = "planner/sync?bin=" + Number(showBin);
         const after =
-          previous?.showBin === showBin ? "&after=" + encodeURIComponent(previous.revision) : "";
+          !force && previous?.showBin === showBin
+            ? "&after=" + encodeURIComponent(previous.revision)
+            : "";
         let snapshot = await api<PlannerSync | undefined>(path + after);
         if (!snapshot || ticket !== serial.current) return;
         if (!snapshot.planner.timeZone) {
@@ -58,7 +60,8 @@ export function usePlanner(showBin: boolean) {
         }
         if (ticket === serial.current) {
           const { revision, planner: next, bin: deleted } = snapshot;
-          const refreshChanged = mode === "refresh" && previous?.showBin === showBin;
+          const refreshChanged =
+            mode === "refresh" && previous?.showBin === showBin && previous.revision !== revision;
           lastResults.current = { showBin, revision };
           const publish = () => {
             if (refreshChanged) setRefreshRevision((value) => value + 1);
@@ -68,6 +71,7 @@ export function usePlanner(showBin: boolean) {
           };
           if (mode === "saved") publishTaskRows(next.tasks, publish);
           else publish();
+          return next;
         }
       } catch (e) {
         if (ticket === serial.current) setError(e instanceof Error ? e.message : "无法读取任务。");
@@ -75,7 +79,9 @@ export function usePlanner(showBin: boolean) {
     },
     [showBin],
   );
-  const refresh = useCallback(() => load("refresh"), [load]);
+  const refresh = useCallback(async () => {
+    await load("refresh");
+  }, [load]);
   useEffect(() => {
     function tick() {
       const next = new Date();
@@ -175,6 +181,7 @@ export function usePlanner(showBin: boolean) {
     act,
     changed,
     refresh,
+    readForEditor: () => load("refresh", true),
     today: clock.slice(0, 10),
     due,
   };

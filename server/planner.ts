@@ -33,14 +33,15 @@ export function bulkPreviews(store: TaskStore) {
       ids = [...new Set(ids)];
       const tasks = records(ids);
       const token = randomUUID();
+      const expiresAt = Date.now() + 600000;
       for (const [k, v] of pending) if (v.expires < Date.now()) pending.delete(k);
       pending.set(token, {
         ids,
         date,
         snapshot: JSON.stringify(tasks),
-        expires: Date.now() + 600000,
+        expires: expiresAt,
       });
-      return { token, date, titles: tasks.map((t) => t.title) };
+      return { token, date, titles: tasks.map((t) => t.title), expiresAt };
     },
     confirm(token: string) {
       const p = pending.get(token);

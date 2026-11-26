@@ -271,7 +271,7 @@ export function taskTools(
           capture?.add({
             kind: "query",
             heading: "查询结果",
-            tasks: page.slice(0, pageSize).map((t) => cardTask(store, t)),
+            tasks: page.slice(0, pageSize).map((t) => cardTask(store, t, filters)),
             more,
           });
         return {
@@ -393,6 +393,17 @@ export function taskTools(
         );
         if (result.error) return result;
         ui?.apply({ method: "manual", reverse: false });
+        if (capture) {
+          const parentChanged = (source.parentId ?? null) !== (result.parentId ?? null);
+          const row = cardTask(store, result, parentChanged ? { parentId: result.parentId } : {});
+          row.details = [
+            `移至「${anchor.title}」${move.side === "before" ? "上方" : "下方"}`,
+            ...(row.details ?? []),
+          ];
+          if (ui && ![source.id, anchor.id].every((id) => ui.context.visibleIds.includes(id)))
+            row.details.push("部分任务在当前筛选范围之外");
+          capture.add({ kind: "updated", tasks: [row] });
+        }
         return {
           moved: result.id,
           anchor: anchor.title,
@@ -457,6 +468,19 @@ export function taskTools(
         const at = task && pendingReminder(task);
         if (!at) return { error: "找不到有效提醒。" };
         const result = await request("POST", id, { at, action: "snooze" }, "planner/reminders");
+        if (result.applied && capture) {
+          const [saved] = store.search({ id }, 0, 1);
+          if (saved?.snoozeUntil)
+            capture.add({
+              kind: "updated",
+              tasks: [
+                {
+                  ...cardTask(store, saved),
+                  details: ["稍后提醒 · " + saved.snoozeUntil.replace("T", " ")],
+                },
+              ],
+            });
+        }
         return result.applied ? { snoozed: id } : { error: "提醒已更改或尚未到点。" };
       },
       true,

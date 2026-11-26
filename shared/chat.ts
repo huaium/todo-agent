@@ -105,6 +105,7 @@ export type ChatMessage = z.infer<typeof messageSchema>;
 const revision = z.number().int().nonnegative();
 const previewSchema = z.object({
   token: z.string(),
+  expiresAt: z.number().optional(),
   date: z.string(),
   titles: z.array(z.string()),
 });

@@ -40,6 +40,7 @@ export function changedCard(
 ): TaskCard {
   if (!after) return { kind: "deleted", tasks: [before] };
   const row = cardTask(store, after, fields);
+  if (before.done && !after.done) row.details = ["已恢复为待办", ...(row.details ?? [])];
   if (row.dueDate !== before.dueDate || row.dueTime !== before.dueTime)
     row.previousDeadline = [before.dueDate, before.dueTime].filter(Boolean).join(" ") || "未设日期";
   return { kind: after.done && !before.done ? "completed" : "updated", tasks: [row] };
