@@ -74,7 +74,7 @@ function describe(write: TaskWrite, planner: Planner): Omit<ChatApproval, "token
   return { title: `${creating ? "创建" : "修改"}任务「${name}」`, details };
 }
 
-type Result = QuestionResult & { preview?: BulkPreview };
+type Result = QuestionResult & { preview?: BulkPreview | null };
 
 function approvalContext(write: TaskWrite, planner: Planner) {
   if (write.resource === "planner/tasks/order") {

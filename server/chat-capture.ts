@@ -3,7 +3,7 @@ import { cardTask } from "./chat-card.ts";
 import { deadlineQuestion, type QuestionResult } from "./chat-questions.ts";
 import type { TaskStore } from "./task-store.ts";
 
-type Reply = QuestionResult & { preview?: BulkPreview };
+type Reply = QuestionResult & { preview?: BulkPreview | null };
 type Options = {
   interactive?: boolean;
   interrupted?: boolean;

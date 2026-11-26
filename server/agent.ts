@@ -1,6 +1,6 @@
 import { Agent } from "@earendil-works/pi-agent-core";
 import { contentText, type Message } from "@earendil-works/pi-ai";
-import type { ChatMessage, ChatQuestion } from "../shared/chat.ts";
+import type { BulkPreview, ChatMessage, ChatQuestion } from "../shared/chat.ts";
 import { chatModel, deepseek } from "./model.ts";
 import { taskTool, type TaskTool } from "./task-tools.ts";
 import { z } from "zod";
@@ -23,7 +23,7 @@ finishReply 的 receipt 只写卡片已展示的操作或查询结果。解释�
 “将甲移到乙上面/下面”等排列请求要调用 moveTaskRelative，不要拆成多次修改。允许把子任务移到父任务上面，成功后说明层级变化。移动项或参照项重名时先询问是哪一条。
 “这些”指当前筛选中未完成的任务。用 listTasks(visible=true) 查询。将这些任务一起改期时直接调用 previewReschedule，传 visible=true 和日期；服务端会涵盖全部匹配的待办。selectedId 是选中的任务。
 用户要求按标题、优先级等排列当前视图时调用 setViewSort。相对移动成功会在支持的界面启用手动排序。排序不改变日期或完成状态；若筛选隐藏了任务，说明手动顺序已保存。
-涉及多个任务的改期只调用 previewReschedule，列出目标等待界面确认，不逐条写入。
+涉及多个任务的改期只调用 previewReschedule，列出目标等待界面确认，不逐条写入。工作区的 pendingPreview 是仍在等待确认的改期预览。回答关于它的追问时可调用 readReschedulePreview 核对完整范围；不要重建预览。只有用户明确要求取消预览时调用 cancelReschedulePreview，执行改期必须由用户点击确认。
 设置重复、截止日期和提醒时，将这些关联字段一次交给 setTaskDetails。`;
 
 const interactiveInstructions = `新建任务直接保存，未指定的日期和时刻留空。单条任务默认由界面询问缺少的截止时间。
@@ -59,8 +59,17 @@ function historyMessage({ role, content, createdTasks }: ChatMessage): Message {
   };
 }
 
-export function workspaceContext(view?: ViewContext, question?: ChatQuestion) {
+export function workspaceContext(
+  view?: ViewContext,
+  question?: ChatQuestion,
+  preview?: BulkPreview,
+) {
   return {
+    pendingPreview: preview && {
+      date: preview.date,
+      count: preview.titles.length,
+      titles: preview.titles.slice(0, 20),
+    },
     view: view && {
       name: view.view.slice(0, 200),
       visibleCount: view.visibleIds.length,
@@ -116,6 +125,7 @@ export async function reply(
     view?: ViewContext;
     timeZone: string | null;
     question?: ChatQuestion;
+    preview?: BulkPreview;
   },
   signal?: AbortSignal,
 ): Promise<FinalReply> {
@@ -136,7 +146,7 @@ export async function reply(
       thinkingLevel: "off",
       systemPrompt: `${instructions}
 ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions : "遇到歧义时，先向用户提问。"}
-今天是 ${today}。时区：${planner?.timeZone ?? "本地"}。工作区：${JSON.stringify(workspaceContext(planner?.view, planner?.question))}`,
+今天是 ${today}。时区：${planner?.timeZone ?? "本地"}。工作区：${JSON.stringify(workspaceContext(planner?.view, planner?.question, planner?.preview))}`,
     },
     toolExecution: "sequential",
     streamFn: (_model, context, options) =>

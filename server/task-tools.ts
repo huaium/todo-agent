@@ -85,6 +85,7 @@ export function taskTools(
   ui?: { context: ViewContext; apply(choice: z.infer<typeof chatSort>): void },
   view?: ViewContext,
   capture?: ChatCapture,
+  pendingPreview?: { read(): BulkPreview | undefined; cancel(): void },
 ): TaskTool[] {
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
     const q = interaction?.previous;
@@ -121,6 +122,41 @@ export function taskTools(
   const sorting = ui?.context.sorting;
   let answeredPrevious = false;
   return [
+    ...(pendingPreview
+      ? [
+          taskTool(
+            "readReschedulePreview",
+            "查看待确认改期预览中的任务。query 按标题查找，可用 offset 翻页。",
+            z.strictObject({ query: z.string().max(200).optional(), offset: pageOffset }),
+            async ({ query, offset = 0 }) => {
+              const current = pendingPreview.read();
+              if (!current) return { error: "没有有效的改期预览。" };
+              const matches = query
+                ? current.titles.filter((title) =>
+                    title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+                  )
+                : current.titles;
+              return {
+                date: current.date,
+                total: current.titles.length,
+                matched: matches.length,
+                titles: matches.slice(offset, offset + pageSize),
+                ...(offset + pageSize < matches.length && { nextOffset: offset + pageSize }),
+              };
+            },
+          ),
+          taskTool(
+            "cancelReschedulePreview",
+            "仅在用户明确要求取消待确认的改期预览时调用。",
+            z.strictObject({}),
+            async () => {
+              if (!pendingPreview.read()) return { error: "没有有效的改期预览。" };
+              pendingPreview.cancel();
+              return { reply: "已取消改期预览。" };
+            },
+          ),
+        ]
+      : []),
     ...(ui && sorting
       ? [
           taskTool(

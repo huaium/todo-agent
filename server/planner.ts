@@ -54,6 +54,31 @@ export function bulkPreviews(store: TaskStore) {
     },
   };
 }
+export function previewTurn(bulk: ReturnType<typeof bulkPreviews>, previous?: BulkPreview) {
+  // Undefined leaves the current preview in place. Null removes it when the turn finishes.
+  let change: BulkPreview | null | undefined;
+  return {
+    create(ids: string[], date: string) {
+      const next = bulk.preview(ids, date);
+      if (change) bulk.discard(change.token);
+      change = next;
+      return next;
+    },
+    read() {
+      const active = change === undefined ? previous : change;
+      return active && (!active.expiresAt || active.expiresAt > Date.now()) ? active : undefined;
+    },
+    cancel() {
+      if (change) bulk.discard(change.token);
+      change = null;
+    },
+    finish() {
+      if (change !== undefined && previous) bulk.discard(previous.token);
+      return change;
+    },
+  };
+}
+
 export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPreviews>) {
   const router = Router();
   router.get("/", (_req, res) => res.json(store.snapshot()));

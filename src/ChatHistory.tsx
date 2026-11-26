@@ -9,11 +9,10 @@ const examplePrompts = ["帮我记一下买牛奶", "看看我的待办", "今�
 function AssistantReply({
   message,
   current,
-  showingPreview,
   disabled,
   onAnswer,
   openTask,
-}: Pick<ChatHistoryProps, "disabled" | "onAnswer" | "openTask" | "showingPreview"> & {
+}: Pick<ChatHistoryProps, "disabled" | "onAnswer" | "openTask"> & {
   message: ChatMessage;
   current: boolean;
 }) {
@@ -41,10 +40,9 @@ function AssistantReply({
       ? message.content.split("\n").slice(1).join("\n")
       : message.content;
   }
-  const previewOnly = current && showingPreview && !message.presentation?.note;
   return (
     <>
-      {text && !previewOnly && (cards.length > 0 || !controls) && <div>{text}</div>}
+      {text && (!controls || attached !== -1) && <div>{text}</div>}
       {cards.map((card, i) => (
         <ChatTaskCard key={i} card={card} openTask={openTask}>
           {i === attached && q?.kind === "deadline" && (
@@ -67,7 +65,6 @@ function AssistantReply({
 
 interface ChatHistoryProps {
   openTask: OpenChatTask;
-  showingPreview: boolean;
   children: ReactNode;
   scrollActions: boolean;
   messages: ChatMessage[];
@@ -79,7 +76,6 @@ interface ChatHistoryProps {
 
 export function ChatHistory({
   openTask,
-  showingPreview,
   children,
   scrollActions,
   messages,
@@ -135,7 +131,6 @@ export function ChatHistory({
                   <AssistantReply
                     message={message}
                     current={index === messages.length - 1}
-                    showingPreview={showingPreview}
                     openTask={openTask}
                     disabled={disabled}
                     onAnswer={onAnswer}

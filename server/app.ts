@@ -14,7 +14,7 @@ import type { TaskStore } from "./task-store.ts";
 import { taskRouter } from "./tasks.ts";
 import { reply as agentReply } from "./agent.ts";
 import { taskTools } from "./task-tools.ts";
-import { bulkPreviews, plannerRouter } from "./planner.ts";
+import { bulkPreviews, plannerRouter, previewTurn } from "./planner.ts";
 import { PlannerError, TaskEditConflict } from "./task-details.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
 import { ChatCapture } from "./chat-capture.ts";
@@ -44,9 +44,10 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     signal?: AbortSignal,
     turn?: number,
     capture = new ChatCapture(messages.at(-1)!.content),
+    previousPreview?: BulkPreview,
   ) {
     let sortChange: SortChange | undefined;
-    let preview: BulkPreview | undefined;
+    const previews = previewTurn(bulk, previousPreview);
     let interactionResult: QuestionResult | undefined;
     const answer = reply
       ? { message: await reply(messages) }
@@ -55,10 +56,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
           taskTools(
             port,
             tasks,
-            (ids, date) => {
-              preview = bulk.preview(ids, date);
-              return preview;
-            },
+            previews.create,
             interactive
               ? {
                   previous,
@@ -83,25 +81,36 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
               : undefined,
             view,
             capture,
+            interactive ? previews : undefined,
           ),
-          { view, timeZone: tasks.timeZone(), question: previous },
+          { view, timeZone: tasks.timeZone(), question: previous, preview: previousPreview },
           signal,
         );
     return capture.finish(
       tasks,
       {
         reply: answer.receipt ?? interactionResult?.reply ?? "",
-        preview,
-        question: preview ? undefined : interactionResult?.question,
+        preview: previews.finish(),
+        question: interactionResult?.question,
         sortChange,
       },
       { interactive, message: answer.message },
     );
   }
 
+  function currentState() {
+    const state = chat.state();
+    if (!state.pending && state.preview?.expiresAt && state.preview.expiresAt <= Date.now()) {
+      bulk.discard(state.preview.token);
+      chat.expirePreview(state.revision);
+      return chat.state();
+    }
+    return state;
+  }
+
   app.get("/api/chat", (req, res) => {
     res.set("Cache-Control", "no-store");
-    return req.query.after === String(chat.state().revision)
+    return req.query.after === String(currentState().revision)
       ? res.sendStatus(204)
       : res.json(chat.read());
   });
@@ -121,7 +130,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       return res.json(result);
     }
     const command = conversationCommand.parse(req.body);
-    const current = chat.state();
+    const current = currentState();
     if (current.revision !== command.revision)
       return res.status(409).json({ error: "对话已更新，请查看最新消息。" });
     if (command.action === "review") {
@@ -149,7 +158,6 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       chat.begin(command.revision, content);
       const pendingRevision = command.revision + 1;
       const capture = new ChatCapture(content);
-      if (current.preview) bulk.discard(current.preview.token);
       const work = (signal?: AbortSignal) =>
         command.action === "answer"
           ? resolveQuestion(tasks, port, previous!, command.answer)
@@ -162,13 +170,14 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
               signal,
               pendingRevision,
               capture,
+              current.preview,
             );
       if (current.approvalMode === "cautious") {
         reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision, capture);
         await reviewTurn.start(work);
         return res.json(chat.read());
       }
-      let result: QuestionResult & { preview?: BulkPreview };
+      let result: QuestionResult & { preview?: BulkPreview | null };
       try {
         result = await work();
       } catch (error) {
@@ -184,18 +193,20 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       return res.status(409).json({ error: "改期预览已变更。" });
     if (command.action === "cancel") {
       bulk.discard(preview.token);
-      chat.appendReply(command.revision, false, "已取消改期。");
+      chat.appendReply(command.revision, false, { reply: "已取消改期。", preview: null });
       return res.json(chat.read());
     }
     let previous;
     try {
       previous = bulk.confirm(preview.token);
     } catch (error) {
-      if (error instanceof PlannerError) chat.appendReply(command.revision, false, error.message);
+      if (error instanceof PlannerError)
+        chat.appendReply(command.revision, false, { reply: error.message, preview: null });
       throw error;
     }
     chat.appendReply(command.revision, false, {
       reply: `已将 ${preview.titles.length} 条任务改到 ${preview.date}。`,
+      preview: null,
       presentation: {
         cards: [
           {

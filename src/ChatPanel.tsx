@@ -64,7 +64,7 @@ export function ChatPanel({
   const history: ChatMessage[] = sending
     ? [...state!.messages, { role: "user", content: active.text }]
     : (state?.messages ?? []);
-  const preview = !sending && state?.preview;
+  const preview = state?.preview;
   const expiresAt = preview ? preview.expiresAt : undefined;
   const [expiredAt, setExpiredAt] = useState<number>();
   useEffect(() => {
@@ -232,7 +232,6 @@ export function ChatPanel({
             if (!error && mobile) dismissSheet();
             return error;
           }}
-          showingPreview={!!preview}
           messages={history}
           pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}

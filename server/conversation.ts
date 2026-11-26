@@ -18,19 +18,24 @@ export class ChatConflict extends Error {
 }
 export function openConversation(db: DatabaseSync) {
   const advance = db.prepare(
-    "UPDATE conversation SET revision=revision+1,pending=?,preview=?,approval=NULL WHERE id=1 AND revision=? AND pending=?",
+    "UPDATE conversation SET revision=revision+1,pending=?,preview=CASE WHEN ? THEN preview ELSE ? END,approval=NULL WHERE id=1 AND revision=? AND pending=?",
   );
   function write(
     revision: number,
     wasPending: boolean,
     pending: boolean,
     message?: ChatMessage,
-    preview?: BulkPreview,
+    preview?: BulkPreview | null,
   ) {
     transaction(db, () => {
       if (
-        !advance.run(Number(pending), JSON.stringify(preview) ?? null, revision, Number(wasPending))
-          .changes
+        !advance.run(
+          Number(pending),
+          Number(preview === undefined),
+          preview ? JSON.stringify(preview) : null,
+          revision,
+          Number(wasPending),
+        ).changes
       )
         throw new ChatConflict();
       if (message) insertMessage(db, message);
@@ -40,7 +45,7 @@ export function openConversation(db: DatabaseSync) {
   function appendReply(
     revision: number,
     wasPending: boolean,
-    result: string | (QuestionResult & { preview?: BulkPreview }),
+    result: string | (QuestionResult & { preview?: BulkPreview | null }),
   ) {
     const {
       reply: content,
@@ -66,8 +71,18 @@ export function openConversation(db: DatabaseSync) {
     context: () => recentContext(readMessages(db, 100)),
     begin: (revision: number, content: string) =>
       write(revision, false, true, { role: "user", content }),
-    clear: (revision: number) => write(revision, false, false),
+    clear: (revision: number) => write(revision, false, false, undefined, null),
     appendReply,
+    expirePreview(revision: number) {
+      if (
+        !db
+          .prepare(
+            "UPDATE conversation SET preview=NULL,revision=revision+1 WHERE id=1 AND revision=? AND pending=0 AND preview IS NOT NULL",
+          )
+          .run(revision).changes
+      )
+        throw new ChatConflict();
+    },
     setApprovalMode(revision: number, mode: ApprovalMode) {
       if (
         !db
@@ -92,13 +107,15 @@ export function openConversation(db: DatabaseSync) {
       const state = chatState(db);
       // A committed tool action must never be replayed on restart.
       if (state.pending)
-        appendReply(
-          state.revision,
-          true,
-          state.approval ? "服务已重启，待审批的更改已取消。" : interruptedReply,
-        );
+        appendReply(state.revision, true, {
+          reply: state.approval ? "服务已重启，待审批的更改已取消。" : interruptedReply,
+          preview: null,
+        });
       else if (state.preview)
-        appendReply(state.revision, false, "服务已重启，上次改期预览已失效。请重新预览。");
+        appendReply(state.revision, false, {
+          reply: "服务已重启，上次改期预览已失效。请重新预览。",
+          preview: null,
+        });
     },
   };
 }

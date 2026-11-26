@@ -14,7 +14,7 @@ import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
 import { candidate, choiceQuestion } from "./chat-questions.ts";
 import { completedReply, workspaceContext } from "./agent.ts";
-import { bulkPreviews } from "./planner.ts";
+import { bulkPreviews, previewTurn } from "./planner.ts";
 import { ChatCapture } from "./chat-capture.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
 
@@ -201,6 +201,92 @@ async function startTestApp(
 
   return { request, store, port, directory, chat, db };
 }
+
+test(
+  "实时追问保留改期预览，同一个预览确认后才写入",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { store, request } = await startTestApp(t);
+    const tasks = ["报告", "取件"].map((title) => store.create(title));
+    const context = { view: "全部", visibleIds: tasks.map((task) => task.id), selectedId: null };
+    const initial = await request("POST", "/api/chat", {
+      action: "send",
+      revision: 0,
+      text: "把这些任务一起改到 2030-03-06，请先预览。",
+      context,
+    });
+    assert.equal(initial.status, 200);
+    const preview = initial.body.preview;
+    assert.deepEqual(preview.titles.toSorted(), tasks.map((t) => t.title).toSorted());
+    const next = await request("POST", "/api/chat", {
+      action: "send",
+      revision: initial.body.revision,
+      text: "这次改期包括「报告」吗？请说明预览中的任务和日期。",
+      context,
+    });
+    assert.equal(next.status, 200);
+    assert.deepEqual(next.body.preview, preview);
+    assert.match(next.body.messages.at(-1).content, /报告/);
+    assert.match(next.body.messages.at(-1).content, /取件/);
+    assert.ok(store.list().every((t) => !t.dueDate));
+    const done = await request("POST", "/api/chat", {
+      action: "confirm",
+      revision: next.body.revision,
+      token: preview.token,
+    });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.preview, undefined);
+    assert.ok(store.list().every((t) => t.dueDate === "2030-03-06"));
+  },
+);
+
+test("preview follow-ups can inspect entries beyond the first page and a cancellation retires the card", async (t) => {
+  const { store, chat, port, request } = await startTestApp(t);
+  const tasks = Array.from({ length: 25 }, (_, i) => store.create("事项" + i));
+  const bulk = bulkPreviews(store);
+  const p = bulk.preview(
+    tasks.map((t) => t.id),
+    "2030-03-06",
+  );
+  chat.appendReply(0, false, { reply: "待确认", preview: p });
+  const read = () => chat.state().preview;
+  const turn = previewTurn(bulk, p);
+  const tools = taskTools(
+    port,
+    store,
+    turn.create,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    turn,
+  );
+  chat.begin(1, "还有哪些任务？");
+  assert.equal(read()?.token, p.token);
+  const inspect = tools.find((tool) => tool.name === "readReschedulePreview")!;
+  const match = await inspect.execute("read", { query: "事项24" });
+  assert.deepEqual(match.details, { date: p.date, total: 25, matched: 1, titles: ["事项24"] });
+  chat.appendReply(2, true, { reply: "包括事项24" });
+  assert.deepEqual((await request("GET", "/api/chat")).body.preview, p);
+  chat.begin(3, "取消预览");
+  await tools.find((tool) => tool.name === "cancelReschedulePreview")!.execute("cancel", {});
+  chat.appendReply(4, true, { reply: "已取消改期。", preview: turn.finish() });
+  assert.throws(() => bulk.confirm(p.token), /失效/);
+  assert.equal(read(), undefined);
+  assert.ok(store.list().every((t) => !t.dueDate));
+  const question = choiceQuestion(store.snapshot(), [tasks[0].id, tasks[1].id], {
+    kind: "update",
+    changes: { done: true },
+  })!;
+  chat.appendReply(5, false, {
+    reply: "你指的是哪一条？",
+    question,
+    preview: { ...p, expiresAt: Date.now() - 1 },
+  });
+  const expired = await request("GET", "/api/chat");
+  assert.equal(expired.body.preview, undefined);
+  assert.equal(expired.body.messages.at(-1).question.id, question.id);
+});
 
 test("批量删除只将确认时选中的已完成任务移入回收站，允许重试和恢复", async (t) => {
   const { request, store } = await startTestApp(t);
