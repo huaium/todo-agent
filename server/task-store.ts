@@ -86,7 +86,20 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
   const byId = db.prepare("SELECT payload FROM tasks WHERE id=?");
   const purge = db.prepare("DELETE FROM task_bin WHERE deleted_at<=?");
   const purgeExpired = () => {
-    purge.run(now().getTime() - binRetentionMs);
+    try {
+      purge.run(now().getTime() - binRetentionMs);
+    } catch (error) {
+      // A live backup may hold a read lock. Expired entries stay hidden until the next sweep.
+      if (
+        !(
+          error instanceof Error &&
+          "errcode" in error &&
+          typeof error.errcode === "number" &&
+          (error.errcode & 0xff) === 5
+        )
+      )
+        throw error;
+    }
   };
   const byParent = db.prepare(
     "SELECT payload FROM tasks WHERE json_extract(payload,'$.parentId')=? ORDER BY position",
@@ -415,8 +428,10 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
       return transaction(db, () => {
         purgeExpired();
         const row = db
-          .prepare("SELECT payload,series FROM task_bin WHERE id=? AND deleted_at=?")
-          .get(id, deletedAt);
+          .prepare(
+            "SELECT payload,series FROM task_bin WHERE id=? AND deleted_at=? AND deleted_at>?",
+          )
+          .get(id, deletedAt, now().getTime() - binRetentionMs);
         if (!row) return false;
         const task: PlannerTask = JSON.parse(String(row.payload));
         const listExists = (listId: string) =>
