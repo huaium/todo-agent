@@ -590,7 +590,7 @@ export default function App() {
               )}
               {view === "done" && (
                 <IconButton
-                  className="delete-completed"
+                  className="view-delete"
                   variant="danger-soft"
                   icon="trash"
                   label="删除全部已完成任务"

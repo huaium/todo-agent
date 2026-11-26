@@ -63,6 +63,15 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
     return result ? res.json(result) : res.sendStatus(204);
   });
   router.get("/bin", (_req, res) => res.set("Cache-Control", "no-store").json(store.bin()));
+  router.delete("/bin", (req, res) => {
+    const { entries } = z
+      .strictObject({
+        entries: z.array(binEntry.extend({ id: z.string().min(1) })).min(1),
+      })
+      .parse(req.body);
+    store.deleteBinItems(entries);
+    res.sendStatus(204);
+  });
   router.post("/bin/:id/restore", (req, res) => {
     const { deletedAt } = binEntry.parse(req.body);
     if (!store.restore(req.params.id, deletedAt)) return res.status(404).json(binEntryMissing);
@@ -70,7 +79,7 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
   });
   router.delete("/bin/:id", (req, res) => {
     const { deletedAt } = binEntry.parse(req.body);
-    if (!store.deleteBinItem(req.params.id, deletedAt))
+    if (!store.deleteBinItems([{ id: req.params.id, deletedAt }]))
       return res.status(404).json(binEntryMissing);
     res.sendStatus(204);
   });

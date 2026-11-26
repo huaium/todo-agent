@@ -4,6 +4,7 @@ import type { BinItem, Planner } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ConfirmAction } from "./PlannerControls.tsx";
+import { IconButton } from "./IconButton.tsx";
 import { SortMenu } from "./SortMenu.tsx";
 import { binMethods, sortBin, type SortChoice } from "./task-sort.ts";
 
@@ -20,6 +21,7 @@ export function TaskBin({ items, planner, query, act, sort, changeSort }: Props)
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<TaskNotice>();
   const [selected, setSelected] = useState<BinItem | null>(null);
+  const [toEmpty, setToEmpty] = useState<Pick<BinItem, "id" | "deletedAt">[] | null>(null);
   const target =
     selected &&
     items?.find((item) => item.id === selected.id && item.deletedAt === selected.deletedAt);
@@ -50,6 +52,14 @@ export function TaskBin({ items, planner, query, act, sort, changeSort }: Props)
           <h1>回收站</h1>
           <p>任务自删除起保留 30 天，到期后自动清除。</p>
         </div>
+        <IconButton
+          className="view-delete"
+          variant="danger-soft"
+          icon="trash"
+          label="清空回收站"
+          isDisabled={!items?.length || restoring !== null}
+          onPress={() => setToEmpty(items?.map(({ id, deletedAt }) => ({ id, deletedAt })) ?? null)}
+        />
         <SortMenu methods={binMethods} choice={sort} onChange={changeSort} />
       </div>
       {!matches ? (
@@ -104,6 +114,16 @@ export function TaskBin({ items, planner, query, act, sort, changeSort }: Props)
         </section>
       )}
       <TaskFeedback notice={notice} />
+      {toEmpty && (
+        <ConfirmAction
+          open
+          title={`永久删除回收站中的全部 ${toEmpty.length} 项任务？`}
+          consequence="这会永久删除回收站中的任务，包括搜索结果之外的任务。删除后无法恢复。"
+          action="永久删除"
+          close={() => setToEmpty(null)}
+          confirm={() => act("planner/bin", "DELETE", { entries: toEmpty })}
+        />
+      )}
       {target && (
         <ConfirmAction
           open

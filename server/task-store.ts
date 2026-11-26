@@ -49,7 +49,7 @@ export interface TaskStore {
   removeCompleted(ids: string[]): void;
   bin(): BinItem[];
   restore(id: string, deletedAt: number): boolean;
-  deleteBinItem(id: string, deletedAt: number): boolean;
+  deleteBinItems(entries: Pick<BinItem, "id" | "deletedAt">[]): number;
   purgeExpired(): void;
   reorder(previous: string[], ordered: string[]): boolean;
   moveRelative(id: string, anchorId: string, side: "before" | "after"): PlannerTask;
@@ -401,11 +401,14 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
           expiresAt: Number(row.deleted_at) + binRetentionMs,
         }));
     },
-    deleteBinItem(id, deletedAt) {
-      return (
-        db.prepare("DELETE FROM task_bin WHERE id=? AND deleted_at=?").run(id, deletedAt)
-          .changes === 1
-      );
+    deleteBinItems(entries) {
+      return transaction(db, () => {
+        const remove = db.prepare("DELETE FROM task_bin WHERE id=? AND deleted_at=?");
+        let deleted = 0;
+        for (const { id, deletedAt } of entries)
+          deleted += Number(remove.run(id, deletedAt).changes);
+        return deleted;
+      });
     },
     restore(id, deletedAt) {
       return transaction(db, () => {

@@ -73,13 +73,14 @@ async function startTestApp(
   t: TestContext,
   reply?: (messages: ChatMessage[]) => Promise<string>,
   legacy?: unknown,
+  now?: () => Date,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
   if (legacy) await writeFile(join(directory, "tasks.json"), JSON.stringify(legacy));
   const db = openDatabase(directory);
   t.after(() => db.close());
-  const store = createTaskStore(db);
+  const store = createTaskStore(db, now);
   const app = createApp({ tasks: store, chat: openConversation(db), reply });
 
   const server = app.listen(0, "127.0.0.1");
@@ -207,7 +208,7 @@ test("planner sync skips unchanged snapshots and tracks writes, ordering, lists 
   await changed();
   store.remove(a.id);
   await changed(true);
-  store.deleteBinItem(a.id, store.bin()[0].deletedAt);
+  store.deleteBinItems([{ id: a.id, deletedAt: store.bin()[0].deletedAt }]);
   await changed(true);
 });
 
@@ -251,7 +252,7 @@ test("permanent deletion removes only the selected bin entry", async (t) => {
   const collection = "/api/planner/bin",
     path = collection + "/" + a.id;
   const body = { deletedAt: entry.deletedAt };
-  assert.equal((await request("DELETE", collection, body)).status, 404);
+  assert.equal((await request("DELETE", collection, body)).status, 400);
   assert.equal((await request("DELETE", path)).status, 400);
   assert.equal((await request("DELETE", path, { deletedAt: entry.deletedAt - 1 })).status, 404);
   assert.equal(store.bin().length, 2);
@@ -262,6 +263,43 @@ test("permanent deletion removes only the selected bin entry", async (t) => {
   assert.equal(other.id, b.id);
   assert.ok(store.restore(other.id, other.deletedAt));
   assert.deepEqual(store.list(), [active, b]);
+});
+
+test("清空回收站只永久删除确认过的记录，重试不影响后来删除的任务", async (t) => {
+  let time = Date.now();
+  const { store, request } = await startTestApp(t, undefined, undefined, () => new Date(time));
+  const url = "/api/planner/bin";
+  const kept = store.create("保留");
+  const [a, b, restored, archivedAgain, later] = ["甲", "乙", "丙", "丁", "戊"].map((title) =>
+    store.create(title),
+  );
+  for (const task of [a, b, restored, archivedAgain]) store.remove(task.id);
+  const entries = store.bin().map(({ id, deletedAt }) => ({ id, deletedAt }));
+  assert.ok(store.restore(restored.id, entries.find((e) => e.id === restored.id)!.deletedAt));
+  assert.ok(
+    store.restore(archivedAgain.id, entries.find((e) => e.id === archivedAgain.id)!.deletedAt),
+  );
+  for (const body of [{ entries: [] }, { entries: [{ id: a.id }] }])
+    assert.equal((await request("DELETE", url, body)).status, 400);
+  store.remove(later.id);
+  time += 1000;
+  store.remove(archivedAgain.id);
+  for (let attempt = 0; attempt < 2; attempt++)
+    assert.equal((await request("DELETE", url, { entries })).status, 204);
+  assert.deepEqual(
+    store
+      .bin()
+      .map((e) => e.id)
+      .sort(),
+    [later.id, archivedAgain.id].sort(),
+  );
+  assert.deepEqual(
+    store
+      .list()
+      .map((t) => t.id)
+      .sort(),
+    [kept.id, restored.id].sort(),
+  );
 });
 
 test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
