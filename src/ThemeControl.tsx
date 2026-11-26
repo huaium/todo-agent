@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useState } from "react";
-import { Button } from "@heroui/react";
+import { IconButton } from "./IconButton.tsx";
 import { applyTheme, readTheme, systemTheme, themeKey, type ThemeMode } from "./appearance.ts";
 
 const themes = {
@@ -11,6 +11,7 @@ const themes = {
 export function ThemeControl() {
   const [mode, setMode] = useState(readTheme);
   const { label, next } = themes[mode];
+  const description = `主题 · ${label}，切换到${themes[next].label}`;
 
   useLayoutEffect(() => {
     const sync = () => applyTheme(mode);
@@ -46,13 +47,12 @@ export function ThemeControl() {
   }
 
   return (
-    <Button
+    <IconButton
       variant="secondary"
       size="sm"
       onPress={cycleTheme}
-      aria-label={`主题 · ${label}，切换到${themes[next].label}`}
-    >
-      主题 · {label}
-    </Button>
+      icon={mode}
+      label={description}
+    />
   );
 }

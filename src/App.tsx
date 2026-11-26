@@ -8,6 +8,7 @@ import { TaskBin } from "./TaskBin.tsx";
 import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
+import { IconButton } from "./IconButton.tsx";
 import { usePlannerKeyboard } from "./PlannerKeyboard.tsx";
 import { ShortcutField, searchKeys } from "./KeyboardHints.tsx";
 import { usePlanner } from "./planner-client.ts";
@@ -369,15 +370,15 @@ export default function App() {
             />
           </ShortcutField>
           {!showBin && (
-            <Button
+            <IconButton
               variant={filtered || filters ? "secondary" : "tertiary"}
+              icon="filter"
+              label={filtered ? "筛选（已应用）" : "筛选"}
               aria-expanded={filters}
               aria-controls="task-filters"
               className={filtered ? "selected-filter" : ""}
               onPress={() => setFilters(!filters)}
-            >
-              筛选{filtered ? " •" : ""}
-            </Button>
+            />
           )}
           <Button variant="secondary" className="mobile-only" onPress={() => setPane("chat")}>
             小明

@@ -1,0 +1,47 @@
+import { Button, Tooltip } from "@heroui/react";
+import type { ComponentProps } from "react";
+
+const paths = {
+  auto: (
+    <path d="M4 4.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM12 17.5v3M8 20.5h8" />
+  ),
+  light: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" />
+    </>
+  ),
+  dark: <path d="M20.5 14.5a9 9 0 0 1-11-11 9 9 0 1 0 11 11Z" />,
+  filter: <path d="M3 4.5h18l-7 8.3v6.1l-4 2v-8.1Z" />,
+  trash: (
+    <path d="M3.5 6.5h17m-12 0V4.8c0-.7.6-1.3 1.3-1.3h4.4c.7 0 1.3.6 1.3 1.3v1.7m-10 0 .9 13c.1 1 .8 1.5 1.7 1.5h7.8c.9 0 1.6-.5 1.7-1.5l.9-13M10 10v7m4-7v7" />
+  ),
+};
+
+type Props = Omit<ComponentProps<typeof Button>, "children" | "isIconOnly"> & {
+  icon: keyof typeof paths;
+  label: string;
+};
+
+export function IconButton({ icon, label, ...props }: Props) {
+  return (
+    <Tooltip>
+      <Button {...props} isIconOnly aria-label={label}>
+        <svg
+          aria-hidden="true"
+          width="20"
+          height="20"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.75"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          {paths[icon]}
+        </svg>
+      </Button>
+      <Tooltip.Content>{label}</Tooltip.Content>
+    </Tooltip>
+  );
+}

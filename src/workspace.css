@@ -116,6 +116,22 @@
 .list-editor {
   padding: 8px 0;
 }
+.toolbar .selected-filter {
+  position: relative;
+}
+.toolbar .selected-filter::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 4px;
+  inset-inline-end: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pane-head .clear-chat {
+  color: var(--danger);
+}
 .rail-foot {
   display: grid;
   grid-auto-rows: 1fr;

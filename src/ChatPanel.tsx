@@ -4,6 +4,7 @@ import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { useConversation } from "./chat-client.ts";
 import { KeyHint } from "./KeyboardHints.tsx";
+import { IconButton } from "./IconButton.tsx";
 import type { ApprovalMode, ChatMessage, ViewContext, SortChange } from "../shared/chat.ts";
 function sessionValue(key: string, value?: string) {
   try {
@@ -124,15 +125,15 @@ export function ChatPanel({
           </Dropdown.Popover>
         </Dropdown>
         {!!state?.messages.length && (
-          <Button
+          <IconButton
             size="sm"
             variant="ghost"
             className="clear-chat"
+            icon="trash"
+            label="清空对话"
             isDisabled={busy}
             onPress={() => setClearRevision(state.revision)}
-          >
-            清空对话
-          </Button>
+          />
         )}
         <Button size="sm" variant="tertiary" className="mobile-only" onPress={close}>
           返回清单
