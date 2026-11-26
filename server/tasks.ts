@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import type { TaskStore } from "./task-store.ts";
+import { candidate } from "./chat-questions.ts";
 
 export const createTaskSchema = z.strictObject({ title: z.string().trim().min(1).max(200) });
 export const updateTaskSchema = createTaskSchema
@@ -33,6 +34,8 @@ export function taskRouter(tasks: TaskStore) {
 
     const updated = tasks.update(req.params.id, input.data);
     if (!updated) return res.status(404).json(taskNotFound);
+    if (req.get("If-Match"))
+      res.set("X-Task-Version", candidate(tasks.taskContext(updated.id), updated.id)!.version);
     res.json(updated);
   });
 

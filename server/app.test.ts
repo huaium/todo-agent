@@ -202,6 +202,34 @@ async function startTestApp(
   return { request, store, port, directory, chat, db };
 }
 
+test("compound edits use the selected task's committed version and reject later outside edits", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const first = store.create("报告"),
+    second = store.create("报告");
+  const previous = choiceQuestion(store.snapshot(), [first.id, second.id], {
+    kind: "update",
+    changes: { done: true },
+  })!;
+  const tools = taskTools(port, store, undefined, {
+    previous,
+    respond(result) {
+      assert.equal(result.question, undefined);
+    },
+  });
+  const run = (name: string, args: object) =>
+    tools.find((tool) => tool.name === name)!.execute(name, args);
+  assert.ok(
+    !(await run("answerQuestion", { answer: { kind: "choose", taskId: second.id } })).isError,
+  );
+  assert.ok(!(await run("setTaskDetails", { id: second.id, changes: { starred: true } })).isError);
+  assert.ok(!(await run("updateTask", { id: second.id, changes: { title: "周报" } })).isError);
+  store.update(second.id, { title: "另一标签页的周报" });
+  assert.ok((await run("updateTask", { id: second.id, changes: { title: "旧标题" } })).isError);
+  const [saved] = store.search({ id: second.id }, 0, 1);
+  assert.deepEqual([saved.title, saved.done, saved.starred], ["另一标签页的周报", true, true]);
+  assert.equal(store.search({ id: first.id }, 0, 1)[0].done, false);
+});
+
 test(
   "实时追问保留改期预览，同一个预览确认后才写入",
   { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },

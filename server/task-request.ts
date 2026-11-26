@@ -7,6 +7,7 @@ export interface TaskWrite {
   body?: unknown;
 }
 export const chatWriteReview = new AsyncLocalStorage<(write: TaskWrite) => Promise<void>>();
+export type RecordTaskVersion = (id: string, version: string | null) => void;
 
 export async function requestTask(
   port: number,
@@ -15,6 +16,7 @@ export async function requestTask(
   body?: unknown,
   resource = "tasks",
   version?: string,
+  recordVersion?: RecordTaskVersion,
 ) {
   if (method !== "GET") await chatWriteReview.getStore()?.({ method, resource, id, body });
   const collection = `http://127.0.0.1:${port}/api/${resource}`;
@@ -29,6 +31,10 @@ export async function requestTask(
       body: JSON.stringify(body),
     },
   );
+  if (response.ok && id && recordVersion) {
+    const next = response.headers.get("X-Task-Version");
+    if (method === "DELETE" || next) recordVersion(id, next);
+  }
   if (response.status === 204) return { deleted: id };
   if (![400, 404, 412].includes(response.status) && !response.ok)
     throw new Error(`任务接口返回 HTTP ${response.status}`);

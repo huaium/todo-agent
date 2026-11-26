@@ -10,7 +10,7 @@ import type {
 import { inbox, localMinute, offsetDate, type Planner } from "../shared/planner.ts";
 import { PlannerError } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
-import { requestTask } from "./task-request.ts";
+import { requestTask, type RecordTaskVersion } from "./task-request.ts";
 import { choiceDescription } from "../shared/task-choice.ts";
 import { cardTask, changedCard } from "./chat-card.ts";
 
@@ -106,6 +106,7 @@ export async function resolveQuestion(
   port: number,
   q: ChatQuestion,
   a: QuestionAnswer,
+  recordVersion?: RecordTaskVersion,
 ): Promise<QuestionResult> {
   const label = answerLabel(q, a);
   if (a.kind === "dismiss")
@@ -124,7 +125,15 @@ export async function resolveQuestion(
   );
   let displayFields: object = {};
   if (q.kind === "choice" && q.operation.kind === "delete") {
-    result = await requestTask(port, "DELETE", task.id, undefined, "tasks", task.version);
+    result = await requestTask(
+      port,
+      "DELETE",
+      task.id,
+      undefined,
+      "tasks",
+      task.version,
+      recordVersion,
+    );
     reply = `已删除「${task.title}」（${task.list}）。`;
   } else {
     const current = planner.tasks.find((t) => t.id === task.id)!;
@@ -149,6 +158,7 @@ export async function resolveQuestion(
       { changes, scope },
       "planner/tasks",
       task.version,
+      recordVersion,
     );
     reply =
       q.kind === "deadline"

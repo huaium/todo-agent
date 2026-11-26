@@ -87,6 +87,10 @@ export function taskTools(
   capture?: ChatCapture,
   pendingPreview?: { read(): BulkPreview | undefined; cancel(): void },
 ): TaskTool[] {
+  const writtenVersions = new Map<string, string | null>();
+  function recordVersion(id: string, version: string | null) {
+    writtenVersions.set(id, version);
+  }
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
     const q = interaction?.previous;
     if (
@@ -100,9 +104,28 @@ export function taskTools(
     const choices = q.kind === "deadline" ? [q.task] : q.tasks;
     const target = choices.find((t) => t.id === id);
     if (!target) return requestTask(port, method, id, body, resource);
+    if (writtenVersions.has(id)) {
+      const version = writtenVersions.get(id);
+      if (!version) return { error: "该任务已在本轮删除。" };
+      return requestTask(port, method, id, body, resource, version, recordVersion);
+    }
     const snapshot = store.snapshot();
-    if (choices.every((t) => candidate(snapshot, t.id)?.version === t.version)) {
-      const result = await requestTask(port, method, id, body, resource, target.version);
+    if (
+      choices.every(
+        (t) =>
+          (candidate(snapshot, t.id)?.version ?? null) ===
+          (writtenVersions.has(t.id) ? writtenVersions.get(t.id) : t.version),
+      )
+    ) {
+      const result = await requestTask(
+        port,
+        method,
+        id,
+        body,
+        resource,
+        target.version,
+        recordVersion,
+      );
       if (!result.stale) return result;
     }
     const updated = refreshQuestion(store, q);
@@ -236,7 +259,13 @@ export function taskTools(
             z.strictObject({ answer: questionAnswer }),
             async ({ answer }) => {
               if (answeredPrevious) return { error: "本轮已处理该问题，请继续处理其余请求。" };
-              const result = await resolveQuestion(store, port, interaction.previous!, answer);
+              const result = await resolveQuestion(
+                store,
+                port,
+                interaction.previous!,
+                answer,
+                recordVersion,
+              );
               answeredPrevious = true;
               interaction.respond(result);
               return result;

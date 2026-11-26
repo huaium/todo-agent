@@ -177,6 +177,8 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
       .parse(req.body);
     const task = store.update(req.params.id, changes, scope, expectedVersion);
     if (!task) return res.status(404).json({ error: "找不到这条任务。" });
+    if (req.get("If-Match"))
+      res.set("X-Task-Version", candidate(store.taskContext(task.id), task.id)!.version);
     res.json(task);
   });
   router.post("/reminders/:id", (req, res) => {
