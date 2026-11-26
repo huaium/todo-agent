@@ -740,6 +740,7 @@
   display: grid;
   gap: 10px;
 }
+.section-top,
 .editor-actions {
   flex-wrap: wrap;
 }

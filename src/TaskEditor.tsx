@@ -69,9 +69,20 @@ export function TaskEditor({
             {state === "error" && ` · ${error}`}
           </p>
         </div>
-        <Button variant="tertiary" autoFocus onPress={close}>
-          返回清单
-        </Button>
+        <div className="editor-actions">
+          <Button variant="tertiary" autoFocus onPress={close}>
+            返回清单
+          </Button>
+          <Button
+            variant="danger-soft"
+            isDisabled={busy}
+            onPress={async () => {
+              if (await flush()) requestDelete(task.id);
+            }}
+          >
+            删除任务
+          </Button>
+        </div>
       </div>
       {state === "error" && (
         <div className="editor-actions">
@@ -188,17 +199,6 @@ export function TaskEditor({
             onChange={(v) => set("repeat", v)}
           />
         </Surface>
-        <div className="wide editor-actions">
-          <Button
-            variant="danger-soft"
-            isDisabled={busy}
-            onPress={async () => {
-              if (await flush()) requestDelete(task.id);
-            }}
-          >
-            删除任务
-          </Button>
-        </div>
       </div>
       {!task.repeat && (
         <Surface className="child-editor">
