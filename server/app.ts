@@ -15,7 +15,7 @@ import { taskRouter } from "./tasks.ts";
 import { reply as agentReply } from "./agent.ts";
 import { taskTools } from "./task-tools.ts";
 import { bulkPreviews, plannerRouter } from "./planner.ts";
-import { PlannerError } from "./task-details.ts";
+import { PlannerError, TaskEditConflict } from "./task-details.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
 import { chatWriteReview } from "./task-request.ts";
 import { ZodError } from "zod";
@@ -215,6 +215,8 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
 }
 
 const handleApiError: ErrorRequestHandler = (error, _req, res, _next) => {
+  if (error instanceof TaskEditConflict)
+    return res.status(412).json({ error: error.message, current: error.current });
   if (error instanceof ChatConflict) return res.status(409).json({ error: error.message });
   if (error instanceof PlannerError || error instanceof ZodError)
     return res.status(400).json({

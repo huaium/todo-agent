@@ -2,6 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { publishTaskRows } from "./task-row-motion.ts";
 import { localMinute, pendingReminder, type BinItem, type Planner } from "../shared/planner.ts";
 
+export class ApiError extends Error {
+  status: number;
+  data: Record<string, unknown>;
+  constructor(status: number, data: Record<string, unknown>) {
+    super(String(data.error || "请求失败。"));
+    this.status = status;
+    this.data = data;
+  }
+}
 export async function api<T>(path: string, method = "GET", body?: unknown): Promise<T> {
   const response = await fetch("/api/" + path, {
     method,
@@ -10,7 +19,7 @@ export async function api<T>(path: string, method = "GET", body?: unknown): Prom
   });
   if (response.status === 204) return undefined as T;
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "请求失败。");
+  if (!response.ok) throw new ApiError(response.status, data);
   return data;
 }
 export function usePlanner(showBin: boolean) {

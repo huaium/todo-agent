@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
@@ -66,6 +67,19 @@ test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
 
   assert.deepEqual(await request("DELETE", item), { status: 204, body: null });
   assert.deepEqual((await request("GET", collection)).body, []);
+});
+
+test("stale autosaves return the current task without writing", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const task = store.create("记录");
+  const expectedVersion = createHash("sha256").update(JSON.stringify(task)).digest("hex");
+  const path = "/api/planner/tasks/" + task.id;
+  const first = await request("PATCH", path, { changes: { notes: "first" }, expectedVersion });
+  assert.equal(first.status, 200);
+  const second = await request("PATCH", path, { changes: { notes: "second" }, expectedVersion });
+  assert.equal(second.status, 412);
+  assert.deepEqual(second.body.current, first.body);
+  assert.deepEqual(store.list(), [first.body]);
 });
 
 test("relative movement rejects a changed anchor before promoting a child", async (t) => {

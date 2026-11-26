@@ -113,10 +113,17 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
     res.sendStatus(204);
   });
   router.patch("/tasks/:id", (req, res) => {
-    const { changes, scope } = z
-      .strictObject({ changes: plannerChanges, scope: z.enum(["one", "future"]).optional() })
+    const { changes, scope, expectedVersion } = z
+      .strictObject({
+        changes: plannerChanges,
+        scope: z.enum(["one", "future"]).optional(),
+        expectedVersion: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/)
+          .optional(),
+      })
       .parse(req.body);
-    const task = store.update(req.params.id, changes, scope);
+    const task = store.update(req.params.id, changes, scope, expectedVersion);
     if (!task) return res.status(404).json({ error: "找不到这条任务。" });
     res.json(task);
   });

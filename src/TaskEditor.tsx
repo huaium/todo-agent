@@ -5,7 +5,7 @@ import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
 import { efforts, priorities } from "../shared/task.ts";
 import { frequencies, repeatLabels, type Planner, type PlannerTask } from "../shared/planner.ts";
 import type { Action } from "./planner-client.ts";
-import { useTaskAutosave } from "./useTaskAutosave.ts";
+import { fieldLabels, useTaskAutosave } from "./useTaskAutosave.ts";
 
 const saveLabels = {
   idle: "自动保存已开启",
@@ -39,8 +39,19 @@ export function TaskEditor({
   const [childError, setChildError] = useState("");
   const [scope, setScope] = useState<"one" | "future">("one");
   const children = data.tasks.filter((t) => t.parentId === task.id);
-  const { draft, edit, state, error, flush, discard, startComposition, endComposition } =
-    useTaskAutosave(task, scope, changed);
+  const {
+    draft,
+    edit,
+    state,
+    error,
+    flush,
+    discard,
+    startComposition,
+    endComposition,
+    conflicts,
+    remote,
+    resolveConflict,
+  } = useTaskAutosave(task, scope, changed);
   useImperativeHandle(flushRef, () => flush, [flush]);
   function set<K extends keyof typeof draft>(key: K, value: (typeof draft)[K]) {
     edit({ [key]: value });
@@ -65,8 +76,8 @@ export function TaskEditor({
         <div>
           <h2>任务详情</h2>
           <p className="autosave-status" role="status" data-error={state === "error"}>
-            {saveLabels[state]}
-            {state === "error" && ` · ${error}`}
+            {conflicts.length ? "有更改冲突，请选择要保留的版本。" : saveLabels[state]}
+            {!conflicts.length && state === "error" && ` · ${error}`}
           </p>
         </div>
         <div className="editor-actions">
@@ -84,7 +95,20 @@ export function TaskEditor({
           </Button>
         </div>
       </div>
-      {state === "error" && (
+      {conflicts.map((key) => (
+        <div key={key} className="fields">
+          <strong className="wide">{fieldLabels[key]}</strong>
+          <div>当前草稿：{String(draft[key]) || "（空）"}</div>
+          <div>已保存：{String(remote[key]) || "（空）"}</div>
+          <Button size="sm" onPress={() => resolveConflict(key, false)}>
+            保留当前草稿
+          </Button>
+          <Button size="sm" variant="secondary" onPress={() => resolveConflict(key, true)}>
+            采用已保存版本
+          </Button>
+        </div>
+      ))}
+      {state === "error" && !conflicts.length && (
         <div className="editor-actions">
           <Button size="sm" variant="secondary" onPress={() => void flush()}>
             重试

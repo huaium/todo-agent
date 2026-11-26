@@ -1,7 +1,7 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync, StatementSync } from "node:sqlite";
 import { binRetentionMs, readPlanner, readTasks, transaction, type Series } from "./database.ts";
-import { PlannerError, type TaskDetails } from "./task-details.ts";
+import { PlannerError, TaskEditConflict, type TaskDetails } from "./task-details.ts";
 import {
   dayDistance,
   inbox,
@@ -20,7 +20,12 @@ export interface TaskStore {
   snapshot(): Planner;
   initializeZone(zone: string): void;
   create(title: string, details?: TaskDetails): PlannerTask;
-  update(id: string, changes: Changes, scope?: "one" | "future"): PlannerTask | undefined;
+  update(
+    id: string,
+    changes: Changes,
+    scope?: "one" | "future",
+    expectedVersion?: string,
+  ): PlannerTask | undefined;
   remove(id: string): boolean;
   bin(): BinItem[];
   restore(id: string, deletedAt: number): boolean;
@@ -239,9 +244,15 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         return change(t, details, "future");
       });
     },
-    update(id, delta, scope = "one") {
+    update(id, delta, scope = "one", expectedVersion) {
       return transaction(db, () => {
         const task = get(id);
+        if (
+          task &&
+          expectedVersion &&
+          createHash("sha256").update(JSON.stringify(task)).digest("hex") !== expectedVersion
+        )
+          throw new TaskEditConflict(task);
         return task && change(task, delta, scope);
       });
     },
