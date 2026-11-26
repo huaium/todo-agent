@@ -2,11 +2,15 @@ import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { z } from "zod";
 import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
 import { detailsSchema } from "./task-details.ts";
-import { pendingReminder } from "../shared/planner.ts";
+import { localMinute, pendingReminder } from "../shared/planner.ts";
+import { binMethods, taskMethods, sortLabels, directionLabels } from "../shared/view-sort.ts";
 import type { TaskStore } from "./task-store.ts";
 import type { Task } from "../shared/task.ts";
 import {
   choiceOperation,
+  chatSort,
+  type ViewContext,
+  type SortChange,
   questionAnswer,
   type ChatQuestion,
   type BulkPreview,
@@ -19,7 +23,7 @@ import {
   resolveQuestion,
   type QuestionResult,
 } from "./chat-questions.ts";
-import { requestTask } from "./task-request.ts";
+import { chatWriteReview, requestTask } from "./task-request.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
@@ -58,6 +62,7 @@ export function taskTools(
   store: TaskStore,
   preview?: (ids: string[], date: string) => BulkPreview,
   interaction?: { previous?: ChatQuestion; respond(result: QuestionResult): void },
+  ui?: { context: ViewContext; apply(choice: z.infer<typeof chatSort>): void },
 ): TaskTool[] {
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
     const q = interaction?.previous;
@@ -82,7 +87,40 @@ export function taskTools(
     return { error: updated.reply };
   }
   const id = z.string().min(1).describe("从任务清单读取的任务 ID");
+  const sorting = ui?.context.sorting;
   return [
+    ...(ui && sorting
+      ? [
+          taskTool(
+            "setViewSort",
+            "更改当前界面的排序方式。manual 手动、due 截止、priority 优先级、effort 工作量、title 标题、deleted 删除时间。reverse=false 表示最早到期、高优先、小工作量、标题正序或最近删除。",
+            chatSort,
+            async (choice) => {
+              const methods: readonly SortChange["method"][] =
+                sorting.viewKey === "bin" ? binMethods : taskMethods;
+              if (
+                !methods.includes(choice.method) ||
+                (choice.method === "manual" && choice.reverse)
+              )
+                return { error: "此视图不支持该排序。" };
+              const label = [
+                sortLabels[choice.method],
+                directionLabels[choice.method][Number(choice.reverse)],
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              await chatWriteReview.getStore()?.({
+                resource: "view/sort",
+                method: "SET",
+                body: { label, view: ui.context.view },
+              });
+              ui.apply(choice);
+              return { reply: `已将当前视图设为${label}。` };
+            },
+            true,
+          ),
+        ]
+      : []),
     ...(interaction
       ? [
           taskTool(
@@ -207,7 +245,64 @@ export function taskTools(
       "moveTaskRelative",
       "调整任务行顺序。将 id 移到 anchorId 的正上方(before)或正下方(after)，并使其与参照任务同级。移动到父任务上方会自动提升一级；无需先修改 parentId。",
       z.strictObject({ id, anchorId: id, side: z.enum(["before", "after"]) }),
-      (move) => requestTask(port, "POST", undefined, move, "planner/tasks/order"),
+      async (move) => {
+        if (sorting?.viewKey === "bin")
+          return { error: "回收站按删除时间或标题排序，请打开任务清单后移动。" };
+        const snapshot = store.snapshot();
+        const source = snapshot.tasks.find((t) => t.id === move.id),
+          anchor = snapshot.tasks.find((t) => t.id === move.anchorId);
+        if (!source || !anchor) return { error: "移动项或参照项已不存在。" };
+        if (
+          sorting &&
+          !anchor.parentId &&
+          sorting.groupView !== "other" &&
+          source.dueDate &&
+          anchor.dueDate
+        ) {
+          const today = localMinute(
+            new Date(),
+            snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ).slice(0, 10);
+          const different =
+            sorting.groupView === "upcoming"
+              ? source.dueDate !== anchor.dueDate
+              : source.dueDate < today !== anchor.dueDate < today;
+          if (
+            different &&
+            ui?.context.visibleIds.includes(source.id) &&
+            ui.context.visibleIds.includes(anchor.id)
+          )
+            return {
+              error: "这两条任务在不同日期分组中。请在全部视图调整顺序，或明确要修改的截止日期。",
+            };
+        }
+        const expected = {
+          source: candidate(snapshot, source.id)!.version,
+          anchor: candidate(snapshot, anchor.id)!.version,
+        };
+        const result = await requestTask(
+          port,
+          "POST",
+          undefined,
+          { ...move, expected },
+          "planner/tasks/order",
+        );
+        if (result.error) return result;
+        ui?.apply({ method: "manual", reverse: false });
+        return {
+          moved: result.id,
+          anchor: anchor.title,
+          side: move.side,
+          parentChanged: (source.parentId ?? null) !== (result.parentId ?? null),
+          parentId: result.parentId ?? null,
+          ...(ui && {
+            sort: "manual",
+            bothInFilter:
+              ui.context.visibleIds.includes(source.id) &&
+              ui.context.visibleIds.includes(anchor.id),
+          }),
+        };
+      },
       true,
     ),
     taskTool(

@@ -5,6 +5,7 @@ import type {
   BulkPreview,
   ChatMessage,
   ChatQuestion,
+  SortChange,
 } from "../shared/chat.ts";
 import {
   chatState,
@@ -48,12 +49,18 @@ export function openConversation(db: DatabaseSync) {
     content: string,
     preview?: BulkPreview,
     question?: ChatQuestion,
+    sortChange?: SortChange,
   ) {
     write(
       revision,
       wasPending,
       false,
-      { role: "assistant", content, ...(question && { question }) },
+      {
+        role: "assistant",
+        content,
+        ...(question && { question }),
+        ...(sortChange && { sortChange }),
+      },
       preview,
     );
   }

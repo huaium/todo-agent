@@ -1,5 +1,25 @@
 import { z } from "zod";
 import { plannerChanges } from "./task-details.ts";
+import { taskMethods } from "./view-sort.ts";
+
+export const chatSort = z.strictObject({
+  method: z.enum([...taskMethods, "deleted"]),
+  reverse: z.boolean(),
+});
+const sortTarget = chatSort.extend({
+  viewKey: z.union([
+    z.enum(["today", "upcoming", "starred", "all", "done", "bin"]),
+    z.string().regex(/^list:.+$/),
+  ]),
+  tab: z.string().min(1).max(100),
+});
+const sortContext = sortTarget.extend({
+  groupView: z.enum(["today", "upcoming", "other"]),
+});
+const sortChange = sortTarget.extend({
+  turn: z.number().int().nonnegative(),
+});
+export type SortChange = z.infer<typeof sortChange>;
 
 const candidateSchema = z.object({
   id: z.string(),
@@ -50,6 +70,7 @@ const messageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string().trim().min(1),
   question: questionSchema.optional(),
+  sortChange: sortChange.optional(),
 });
 
 export type ChatMessage = z.infer<typeof messageSchema>;
@@ -81,6 +102,7 @@ const viewContext = z.object({
   view: z.string(),
   visibleIds: z.array(z.string()),
   selectedId: z.string().nullable(),
+  sorting: sortContext.optional(),
 });
 export type ViewContext = z.infer<typeof viewContext>;
 

@@ -162,7 +162,7 @@ export function chatState(db: DatabaseSync): Omit<Conversation, "messages"> {
   };
 }
 export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
-  const fields = "SELECT role,content,question FROM messages ORDER BY seq";
+  const fields = "SELECT * FROM messages ORDER BY seq";
   const rows =
     latest === undefined
       ? db.prepare(fields).all()
@@ -174,16 +174,18 @@ export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
     role: r.role as ChatMessage["role"],
     content: String(r.content),
     ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
+    ...(typeof r.sort_change === "string" && { sortChange: JSON.parse(r.sort_change) }),
   }));
 }
 export function readConversation(db: DatabaseSync): Conversation {
   return { ...chatState(db), messages: readMessages(db) };
 }
 export function insertMessage(db: DatabaseSync, message: ChatMessage) {
-  db.prepare("INSERT INTO messages(role,content,question) VALUES(?,?,?)").run(
+  db.prepare("INSERT INTO messages(role,content,question,sort_change) VALUES(?,?,?,?)").run(
     message.role,
     message.content,
     JSON.stringify(message.question) ?? null,
+    JSON.stringify(message.sortChange) ?? null,
   );
 }
 
@@ -199,7 +201,7 @@ const schema = `
   CREATE INDEX task_list ON tasks(json_extract(payload,'$.listId'));
   CREATE TABLE series(id TEXT PRIMARY KEY, payload TEXT NOT NULL CHECK(json_valid(payload))) STRICT;
   CREATE TABLE conversation(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL, pending INTEGER NOT NULL CHECK(pending IN (0,1)), preview TEXT) STRICT;
-  CREATE TABLE messages(seq INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, question TEXT) STRICT;
+  CREATE TABLE messages(seq INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, question TEXT, sort_change TEXT) STRICT;
 `;
 function importDatabase(directory: string, filename: string) {
   const { planner, chat, bin } = readLegacyFiles(directory);
@@ -242,7 +244,7 @@ function importDatabase(directory: string, filename: string) {
         for (const message of chat.messages) insertMessage(db, message);
         deepStrictEqual(readPlannerDocument(db), planner);
         deepStrictEqual(readConversation(db), chat);
-        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=3");
+        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=4");
       });
     } finally {
       db.close();
@@ -265,12 +267,12 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (
       db.prepare("PRAGMA application_id").get()?.application_id !== 1414480975 ||
-      (version !== 1 && version !== 2 && version !== 3)
+      (version !== 1 && version !== 2 && version !== 3 && version !== 4)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 3 && !readOnly)
+    if (version !== 4 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -280,6 +282,8 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
           db.exec(approvalColumns);
           db.exec("PRAGMA user_version=3");
         }
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 3)
+          db.exec("ALTER TABLE messages ADD COLUMN sort_change TEXT; PRAGMA user_version=4");
       });
     return db;
   } catch (error) {

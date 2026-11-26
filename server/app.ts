@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type ViewContext,
   type ChatQuestion,
+  type SortChange,
 } from "../shared/chat.ts";
 import { answerLabel, candidate, resolveQuestion, type QuestionResult } from "./chat-questions.ts";
 import { ChatConflict, interruptedReply, type openConversation } from "./conversation.ts";
@@ -39,7 +40,9 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     interactive = false,
     previous?: ChatQuestion,
     signal?: AbortSignal,
+    turn?: number,
   ) {
+    let sortChange: SortChange | undefined;
     let preview: BulkPreview | undefined;
     let interactionResult: QuestionResult | undefined;
     const { tasks: current, lists, timeZone } = tasks.snapshot();
@@ -62,6 +65,19 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
                   },
                 }
               : undefined,
+            turn !== undefined && view?.sorting
+              ? {
+                  context: view,
+                  apply(choice) {
+                    sortChange = {
+                      ...choice,
+                      turn,
+                      tab: view.sorting!.tab,
+                      viewKey: view.sorting!.viewKey,
+                    };
+                  },
+                }
+              : undefined,
           ),
           current,
           { view, lists, timeZone, question: previous },
@@ -71,6 +87,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       reply: preview ? answer : (interactionResult?.reply ?? answer),
       preview,
       question: preview ? undefined : interactionResult?.question,
+      sortChange,
     };
   }
 
@@ -127,7 +144,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       const work = (signal?: AbortSignal) =>
         command.action === "answer"
           ? resolveQuestion(tasks, port, previous!, command.answer)
-          : respond(chat.context(), port, command.context, true, previous, signal);
+          : respond(chat.context(), port, command.context, true, previous, signal, pendingRevision);
       if (current.approvalMode === "cautious") {
         reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision);
         await reviewTurn.start(work);
@@ -140,7 +157,14 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
         chat.appendReply(pendingRevision, true, interruptedReply);
         throw error;
       }
-      chat.appendReply(pendingRevision, true, result.reply, result.preview, result.question);
+      chat.appendReply(
+        pendingRevision,
+        true,
+        result.reply,
+        result.preview,
+        result.question,
+        result.sortChange,
+      );
       return res.json(chat.read());
     }
     const preview = current.preview;

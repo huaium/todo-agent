@@ -25,6 +25,8 @@ const labels: Record<string, string> = {
 
 function describe(write: TaskWrite, planner: Planner): Omit<ChatApproval, "token"> {
   const body = (write.body ?? {}) as Record<string, unknown>;
+  if (write.resource === "view/sort")
+    return { title: `更改「${body.view}」排序`, details: [String(body.label)] };
   const task = planner.tasks.find((t) => t.id === write.id);
   const listName = (id: unknown) =>
     planner.lists.find((l) => l.id === (id ?? inbox))?.name ?? String(id);
@@ -32,12 +34,12 @@ function describe(write: TaskWrite, planner: Planner): Omit<ChatApproval, "token
     const source = planner.tasks.find((t) => t.id === body.id);
     const anchor = planner.tasks.find((t) => t.id === body.anchorId);
     const parent = planner.tasks.find((t) => t.id === anchor?.parentId);
+    const details = ["在任务视图中使用手动排序"];
+    if ((source?.parentId ?? null) !== (anchor?.parentId ?? null))
+      details.unshift(parent ? `移为「${parent.title}」的子任务` : "移为独立任务");
     return {
       title: `将「${source?.title ?? body.id}」移到「${anchor?.title ?? body.anchorId}」${body.side === "before" ? "上方" : "下方"}`,
-      details:
-        (source?.parentId ?? null) === (anchor?.parentId ?? null)
-          ? []
-          : [parent ? `移为「${parent.title}」的子任务` : "移为独立任务"],
+      details,
     };
   }
   if (write.resource === "planner/lists") {
@@ -133,6 +135,7 @@ export class ApprovalTurn {
               result.reply,
               result.preview,
               result.question,
+              result.sortChange,
             );
           this.boundary.resolve();
         } catch (error) {

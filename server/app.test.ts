@@ -11,6 +11,7 @@ import { createTaskStore } from "./task-store.ts";
 import { openDatabase } from "./database.ts";
 import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
+import { candidate } from "./chat-questions.ts";
 
 async function startTestApp(
   t: TestContext,
@@ -67,6 +68,35 @@ test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
   assert.deepEqual((await request("GET", collection)).body, []);
 });
 
+test("relative movement rejects a changed anchor before promoting a child", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const anchor = store.create("开会"),
+    source = store.create("买鸡蛋", { parentId: anchor.id });
+  const snapshot = store.snapshot();
+  const expected = {
+    source: candidate(snapshot, source.id)!.version,
+    anchor: candidate(snapshot, anchor.id)!.version,
+  };
+  store.update(anchor.id, { title: "另一次会议" });
+  assert.equal(
+    (
+      await request("POST", "/api/planner/tasks/order", {
+        id: source.id,
+        anchorId: anchor.id,
+        side: "before",
+        expected,
+      })
+    ).status,
+    412,
+  );
+  assert.deepEqual(
+    store.list().map((t) => [t.id, t.parentId]),
+    [
+      [anchor.id, undefined],
+      [source.id, anchor.id],
+    ],
+  );
+});
 test("permanent deletion removes only the selected bin entry", async (t) => {
   const { store, request } = await startTestApp(t);
   const a = store.create("周报"),

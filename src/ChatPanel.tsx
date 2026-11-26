@@ -3,7 +3,28 @@ import { Button, Dropdown, Label, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { useConversation } from "./chat-client.ts";
-import type { ApprovalMode, ChatMessage, ViewContext } from "../shared/chat.ts";
+import type { ApprovalMode, ChatMessage, ViewContext, SortChange } from "../shared/chat.ts";
+function sessionValue(key: string, value?: string) {
+  try {
+    if (value !== undefined) sessionStorage.setItem(key, value);
+    else return sessionStorage.getItem(key);
+  } catch (error) {
+    if (
+      !(
+        error instanceof DOMException &&
+        ["SecurityError", "QuotaExceededError"].includes(error.name)
+      )
+    )
+      throw error;
+  }
+}
+function tabIdentity() {
+  const saved = sessionValue("planner-chat-tab");
+  if (saved) return saved;
+  const id = crypto.getRandomValues(new Uint32Array(4)).join("-");
+  sessionValue("planner-chat-tab", id);
+  return id;
+}
 const modeLabels = { allow: "全部允许", cautious: "审慎模式" } satisfies Record<
   ApprovalMode,
   string
@@ -12,11 +33,18 @@ export function ChatPanel({
   context,
   changed,
   close,
+  sortContext,
+  applySort,
 }: {
   context: ViewContext;
   changed(): Promise<void>;
   close(): void;
+  sortContext: Omit<NonNullable<ViewContext["sorting"]>, "tab">;
+  applySort(change: SortChange): void;
 }) {
+  const [tab] = useState(tabIdentity);
+  const [initialTurn] = useState(() => Number(sessionValue("planner-applied-sort:" + tab)) || 0);
+  const appliedTurn = useRef(initialTurn);
   const { state, active, error, reload, submit } = useConversation();
   const [draft, setDraft] = useState("");
   const [clearRevision, setClearRevision] = useState<number | null>(null);
@@ -34,15 +62,22 @@ export function ChatPanel({
     if (!state || seenRevision.current === state.revision) return;
     const firstLoad = seenRevision.current === undefined;
     seenRevision.current = state.revision;
+    // A tab may have refreshed or navigated while the agent was awaiting approval.
+    for (const { sortChange } of state.messages) {
+      if (sortChange?.tab !== tab || sortChange.turn <= appliedTurn.current) continue;
+      applySort(sortChange);
+      appliedTurn.current = sortChange.turn;
+      sessionValue("planner-applied-sort:" + tab, String(sortChange.turn));
+    }
     if (!firstLoad && !state.pending) void changed();
-  }, [state, changed]);
+  }, [state, changed, tab, applySort]);
   async function send(text: string) {
     if (!text.trim() || !state || busy) return;
     setDraft("");
     const accepted = await submit({
       action: "send",
       text: text.trim(),
-      context,
+      context: { ...context, sorting: { ...sortContext, tab } },
       revision: state.revision,
     });
     if (!accepted) setDraft(text);

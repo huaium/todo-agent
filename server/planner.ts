@@ -7,6 +7,7 @@ import { createTaskSchema } from "./tasks.ts";
 import { plannerChanges } from "../shared/task-details.ts";
 export { plannerChanges };
 import type { BulkPreview } from "../shared/chat.ts";
+import { candidate } from "./chat-questions.ts";
 
 const listName = z.strictObject({ name: z.string().trim().min(1).max(80) });
 const binEntry = z.strictObject({ deletedAt: z.number().int() });
@@ -87,13 +88,22 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
   });
   router.post("/tasks/order", (req, res) => {
     if (req.body?.anchorId !== undefined) {
-      const { id, anchorId, side } = z
+      const { id, anchorId, side, expected } = z
         .strictObject({
           id: z.string().min(1),
           anchorId: z.string().min(1),
           side: z.enum(["before", "after"]),
+          expected: z.object({ source: z.string(), anchor: z.string() }).optional(),
         })
         .parse(req.body);
+      if (expected) {
+        const snapshot = store.snapshot();
+        if (
+          candidate(snapshot, id)?.version !== expected.source ||
+          candidate(snapshot, anchorId)?.version !== expected.anchor
+        )
+          return res.status(412).json({ error: "移动项或参照任务已变化，请重新核对。" });
+      }
       return res.json(store.moveRelative(id, anchorId, side));
     }
     const ids = z.array(z.string().min(1)).min(2);

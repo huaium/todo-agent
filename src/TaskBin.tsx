@@ -5,18 +5,18 @@ import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { SortMenu } from "./SortMenu.tsx";
-import { binMethods, sortBin, useViewSort } from "./task-sort.ts";
-import { publishTaskRows } from "./task-row-motion.ts";
+import { binMethods, sortBin, type SortChoice } from "./task-sort.ts";
 
 interface Props {
   items: BinItem[] | null;
   planner: Planner;
   query: string;
   act: Action;
+  sort: SortChoice<(typeof binMethods)[number]>;
+  changeSort(choice: SortChoice<(typeof binMethods)[number]>): void;
 }
 
-export function TaskBin({ items, planner, query, act }: Props) {
-  const [sort, selectSort] = useViewSort("bin", binMethods, "deleted");
+export function TaskBin({ items, planner, query, act, sort, changeSort }: Props) {
   const [restoring, setRestoring] = useState<string | null>(null);
   const [notice, setNotice] = useState<TaskNotice>();
   const [selected, setSelected] = useState<BinItem | null>(null);
@@ -50,11 +50,7 @@ export function TaskBin({ items, planner, query, act }: Props) {
           <h1>回收站</h1>
           <p>任务自删除起保留 30 天，到期后自动清除。</p>
         </div>
-        <SortMenu
-          methods={binMethods}
-          choice={sort}
-          onChange={(choice) => publishTaskRows(planner.tasks, () => selectSort(choice))}
-        />
+        <SortMenu methods={binMethods} choice={sort} onChange={changeSort} />
       </div>
       {!matches ? (
         <p role="status">正在读取回收站…</p>

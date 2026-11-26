@@ -11,7 +11,8 @@ import { ThemeControl } from "./ThemeControl.tsx";
 import { usePlanner } from "./planner-client.ts";
 import { cancelTaskRowAnimations, publishTaskRows, revealTaskResults } from "./task-row-motion.ts";
 import { SortMenu } from "./SortMenu.tsx";
-import { sortTasks, taskMethods, useViewSort, type SortChoice } from "./task-sort.ts";
+import { binMethods, sortTasks, taskMethods, useViewSort, type SortChoice } from "./task-sort.ts";
+import type { SortChange } from "../shared/chat.ts";
 
 const views = [
   ["today", "今天", ""],
@@ -35,6 +36,13 @@ export default function App() {
     activeView === "today" || activeView === "upcoming" ? "due" : "manual",
   );
   const orderedTasks = useMemo(() => sortTasks(data.tasks, sort), [data.tasks, sort]);
+  const [binSort, selectBinSort] = useViewSort("bin", binMethods, "deleted");
+  function applyChatSort(change: SortChange) {
+    const { method, reverse, viewKey } = change;
+    if (viewKey === "bin") {
+      if (method === "deleted" || method === "title") selectBinSort({ method, reverse });
+    } else if (method !== "deleted") selectSort({ method, reverse }, viewKey);
+  }
   function changeSort(choice: SortChoice) {
     publishTaskRows(data.tasks, () => selectSort(choice));
   }
@@ -404,7 +412,14 @@ export default function App() {
           </div>
         )}
         {showBin ? (
-          <TaskBin items={bin} planner={data} query={query} act={act} />
+          <TaskBin
+            items={bin}
+            planner={data}
+            query={query}
+            act={act}
+            sort={binSort}
+            changeSort={(choice) => publishTaskRows(data.tasks, () => selectBinSort(choice))}
+          />
         ) : (
           <div className="list-scroll" hidden={!!selectedTask}>
             {due.length > 0 && (
@@ -586,6 +601,12 @@ export default function App() {
         }}
       />
       <ChatPanel
+        sortContext={{
+          ...(showBin ? binSort : sort),
+          viewKey: activeView,
+          groupView: view === "today" || view === "upcoming" ? view : "other",
+        }}
+        applySort={applyChatSort}
         context={{
           view: label,
           visibleIds: items.map((t) => t.id),

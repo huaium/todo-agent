@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import type { BinItem, PlannerTask } from "../shared/planner.ts";
 import { efforts, priorities } from "../shared/task.ts";
 
-export const taskMethods = ["manual", "due", "priority", "effort", "title"] as const;
-export const binMethods = ["deleted", "title"] as const;
+import { taskMethods, binMethods } from "../shared/view-sort.ts";
+export { taskMethods, binMethods, directionLabels, sortLabels } from "../shared/view-sort.ts";
 type TaskMethod = (typeof taskMethods)[number];
 type BinMethod = (typeof binMethods)[number];
 export type SortMethod = TaskMethod | BinMethod;
@@ -11,22 +11,6 @@ export interface SortChoice<M extends SortMethod = TaskMethod> {
   method: M;
   reverse: boolean;
 }
-export const sortLabels = {
-  manual: "手动排序",
-  due: "截止时间",
-  priority: "优先级",
-  effort: "工作量",
-  title: "标题",
-  deleted: "删除时间",
-};
-export const directionLabels = {
-  manual: [],
-  due: ["最早优先", "最晚优先"],
-  priority: ["高优先", "低优先"],
-  effort: ["小优先", "大优先"],
-  title: ["标题正序", "标题倒序"],
-  deleted: ["最近删除优先", "最早删除优先"],
-};
 
 const titles = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
 
@@ -105,10 +89,10 @@ export function useViewSort<M extends SortMethod>(
     () => choices[view] ?? readSort(view, methods, defaultMethod),
     [choices, view, methods, defaultMethod],
   );
-  function select(next: SortChoice<M>) {
-    setChoices((previous) => ({ ...previous, [view]: next }));
+  function select(next: SortChoice<M>, target = view) {
+    setChoices((previous) => ({ ...previous, [target]: next }));
     try {
-      localStorage.setItem(preferenceKey(view), (next.reverse ? "-" : "") + next.method);
+      localStorage.setItem(preferenceKey(target), (next.reverse ? "-" : "") + next.method);
     } catch (error) {
       if (
         !(
