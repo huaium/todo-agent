@@ -8,6 +8,7 @@ import {
   TimeField,
 } from "@heroui/react";
 import { parseDate, parseDateTime, parseTime, today } from "@internationalized/date";
+import { useRef } from "react";
 
 interface FieldProps {
   label: string;
@@ -90,6 +91,7 @@ export function PlannerDate({
 }
 
 export function PlannerTime({ label, value, onChange, required, disabled }: FieldProps) {
+  const group = useRef<HTMLDivElement>(null);
   return (
     <TimeField
       value={value ? parseTime(value) : null}
@@ -100,7 +102,8 @@ export function PlannerTime({ label, value, onChange, required, disabled }: Fiel
       onChange={(next) => onChange(next?.toString().slice(0, 5) ?? "")}
     >
       <Label>{label}</Label>
-      <TimeField.Group>
+      {/* Only the inner input participates in automatic segment navigation. */}
+      <TimeField.Group ref={group} slot={null} role="presentation" isDisabled={disabled}>
         <TimeField.Input>{(segment) => <TimeField.Segment segment={segment} />}</TimeField.Input>
         {value && !required && (
           <Button
@@ -109,7 +112,11 @@ export function PlannerTime({ label, value, onChange, required, disabled }: Fiel
             variant="ghost"
             isIconOnly
             aria-label={"清除" + label}
-            onPress={() => onChange("")}
+            isDisabled={disabled}
+            onPress={() => {
+              onChange("");
+              group.current?.querySelector<HTMLElement>('[data-type="hour"]')?.focus();
+            }}
           >
             ×
           </Button>

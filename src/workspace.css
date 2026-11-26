@@ -769,6 +769,9 @@
 .editor .time-field__group {
   width: 100%;
 }
+.time-field .date-input-group:focus-within:not([data-invalid]) {
+  box-shadow: var(--field-shadow);
+}
 .tag-picker {
   min-width: 0;
 }
