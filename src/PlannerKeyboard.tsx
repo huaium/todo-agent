@@ -2,7 +2,6 @@ import { useEffect } from "react";
 
 export function usePlannerKeyboard(editing: boolean, setPane: (pane: string) => void) {
   useEffect(() => {
-    if (editing) return;
     function onKey(event: KeyboardEvent) {
       const target = event.target;
       if (
@@ -14,10 +13,10 @@ export function usePlannerKeyboard(editing: boolean, setPane: (pane: string) => 
       )
         return;
 
-      const key = event.key.toLowerCase();
-      const search =
-        key === "k" && event.ctrlKey !== event.metaKey && !event.shiftKey && !event.altKey;
-      if (!search) return;
+      if (event.ctrlKey === event.metaKey || event.altKey) return;
+      const search = event.key.toLowerCase() === "k" && !event.shiftKey && !editing;
+      const chat = event.key === "/";
+      if (!search && !chat) return;
       if (
         document.querySelector(
           '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], .sortable-row[data-moving]',
@@ -27,8 +26,12 @@ export function usePlannerKeyboard(editing: boolean, setPane: (pane: string) => 
       event.preventDefault();
       event.stopPropagation();
       if (event.repeat) return;
-      setPane("list");
+      setPane(chat ? "chat" : "list");
       requestAnimationFrame(() => {
+        if (chat) {
+          document.querySelector<HTMLTextAreaElement>(".composer textarea")?.focus();
+          return;
+        }
         const field = document.querySelector<HTMLInputElement>("input.search");
         field?.focus();
         field?.select();

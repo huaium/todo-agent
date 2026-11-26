@@ -6,7 +6,7 @@ import { ChatSettings, useSendShortcut } from "./ChatSettings.tsx";
 import { ModelDownload, useSpeechModel } from "./speech/ModelDownload.tsx";
 import { useDictation } from "./speech/useDictation.ts";
 import { useConversation } from "./chat-client.ts";
-import { KeyHint } from "./KeyboardHints.tsx";
+import { chatKeys, KeyHint } from "./KeyboardHints.tsx";
 import { IconButton } from "./IconButton.tsx";
 import type { ApprovalMode, ChatMessage, ViewContext, SortChange } from "../shared/chat.ts";
 function sessionValue(key: string, value?: string) {
@@ -295,12 +295,15 @@ export function ChatPanel({
             </Button>
           </div>
         )}
-        {!busy && !voiceActive && (
-          <div className="chat-key-hints">
-            <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
-            <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
-          </div>
-        )}
+        <div className="chat-key-hints">
+          <KeyHint keys={chatKeys}>聚焦聊天</KeyHint>
+          {!busy && !voiceActive && (
+            <>
+              <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
+              <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
+            </>
+          )}
+        </div>
         <TextArea
           variant="secondary"
           ref={input}
@@ -308,6 +311,7 @@ export function ChatPanel({
           value={draft}
           readOnly={busy}
           aria-label="消息"
+          aria-keyshortcuts="Control+/ Meta+/"
           placeholder="告诉小明你想做什么…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

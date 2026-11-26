@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 const apple = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
 export const searchKeys = apple ? "⌘ K" : "Ctrl K";
+export const chatKeys = apple ? "⌘ /" : "Ctrl /";
 
 export function KeyHint({ keys, children }: { keys: string; children?: ReactNode }) {
   return (
