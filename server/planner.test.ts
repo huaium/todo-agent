@@ -72,6 +72,16 @@ test("旧清单原子迁移，移动父任务时同步移动所有子项，删�
   assert.equal(store.list()[0].extension, 42);
   assert.ok(store.list().every((t) => !t.listId));
 });
+test("moving a completed task beside a pending subtask preserves both hierarchy and order", async (t) => {
+  const { store } = await fixture(t);
+  const parent = store.create("采购");
+  const child = store.create("牛奶", { parentId: parent.id });
+  const done = store.create("取件");
+  store.update(done.id, { done: true });
+  const before = store.list();
+  assert.throws(() => store.moveRelative(done.id, child.id, "before"), /待办和已完成/);
+  assert.deepEqual(store.list(), before);
+});
 test("bin restores only the current deletion before the exact 30-day cutoff and purges on restart", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "planner-bin-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

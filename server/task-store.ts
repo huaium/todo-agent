@@ -482,7 +482,7 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         const task = get(id),
           anchor = get(anchorId);
         if (!task || !anchor) return fail("移动的任务或参照任务已不存在。");
-        if (!anchor.parentId && task.done !== anchor.done)
+        if (task.done !== anchor.done)
           fail("两条任务分属待办和已完成，无法在这两个分组之间手动排序。");
         if ((task.parentId ?? null) !== (anchor.parentId ?? null)) {
           if ((task.listId ?? inbox) !== (anchor.listId ?? inbox))
