@@ -117,7 +117,7 @@ export class ApprovalTurn {
     this.capture = capture;
   }
   private interrupt(reply: string) {
-    const result = this.capture.finish(this.tasks, { reply }, { keepReply: true });
+    const result = this.capture.finish(this.tasks, { reply }, { interrupted: true });
     this.chat.appendReply(this.revision, true, result);
   }
   private async review(write: TaskWrite) {

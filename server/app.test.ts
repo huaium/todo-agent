@@ -16,6 +16,34 @@ import { candidate } from "./chat-questions.ts";
 import { workspaceContext } from "./agent.ts";
 import { bulkPreviews } from "./planner.ts";
 import { ChatCapture } from "./chat-capture.ts";
+import { ApprovalTurn } from "./chat-approval.ts";
+
+test("canceling the second approval names the first saved task", async (t) => {
+  const { store, port, chat } = await startTestApp(t);
+  const message = "记下买茶和买盐";
+  chat.setApprovalMode(0, "cautious");
+  chat.begin(1, message);
+  const capture = new ChatCapture(message);
+  const turn = new ApprovalTurn(chat, store, 2, capture);
+  const create = taskTools(port, store, undefined, undefined, undefined, undefined, capture).find(
+    (tool) => tool.name === "createTask",
+  )!;
+  await turn.start(async () => {
+    await create.execute("first", { title: "买茶" });
+    await create.execute("second", { title: "买盐" });
+    return { reply: "已记下。" };
+  });
+  await turn.decide(true);
+  await turn.decide(false);
+  assert.deepEqual(
+    store.list().map((task) => task.title),
+    ["买茶"],
+  );
+  assert.deepEqual(chat.read().messages.at(-1), {
+    role: "assistant",
+    content: "已添加「买茶」。\n已取消待审批的更改。",
+  });
+});
 
 test("批量回执只包含本轮保存的任务，保留日期精度和单条任务的追问偏好", async (t) => {
   const { store, port } = await startTestApp(t);
@@ -81,7 +109,8 @@ async function startTestApp(
   const db = openDatabase(directory);
   t.after(() => db.close());
   const store = createTaskStore(db, now);
-  const app = createApp({ tasks: store, chat: openConversation(db), reply });
+  const chat = openConversation(db);
+  const app = createApp({ tasks: store, chat, reply });
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
@@ -100,7 +129,7 @@ async function startTestApp(
     };
   }
 
-  return { request, store, port, directory };
+  return { request, store, port, directory, chat };
 }
 
 test("批量删除只将确认时选中的已完成任务移入回收站，允许重试和恢复", async (t) => {

@@ -20,9 +20,9 @@ export class ChatCapture {
   finish(
     store: TaskStore,
     result: Reply,
-    options: { interactive?: boolean; keepReply?: boolean } = {},
+    options: { interactive?: boolean; keepReply?: boolean; interrupted?: boolean } = {},
   ): Reply {
-    if (this.created.size >= 2) {
+    if (options.interrupted || this.created.size >= 2) {
       const createdTasks: CreatedTask[] = [];
       for (const id of this.created.keys()) {
         const [task] = store.search({ id }, 0, 1);
@@ -34,7 +34,11 @@ export class ChatCapture {
             dueTime: task.dueTime ?? null,
           });
       }
-      if (createdTasks.length < 2) return result;
+      if (createdTasks.length === 0) return result;
+      if (createdTasks.length === 1) {
+        if (!options.interrupted) return result;
+        return { ...result, reply: `已添加「${createdTasks[0].title}」。\n${result.reply}` };
+      }
       const timed = createdTasks.filter((t) => t.dueTime).length;
       const undated = createdTasks.filter((t) => !t.dueDate).length;
       const dateOnly = createdTasks.length - timed - undated;
@@ -45,7 +49,7 @@ export class ChatCapture {
       ].filter(Boolean);
       const summary = `已添加 ${createdTasks.length} 项任务。${counts.join("，")}。`;
       const reply =
-        options.keepReply || result.question || result.preview
+        options.interrupted || options.keepReply || result.question || result.preview
           ? summary + "\n" + result.reply
           : summary;
       return { ...result, reply, createdTasks };

@@ -170,7 +170,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       try {
         result = await work();
       } catch (error) {
-        const partial = capture.finish(tasks, { reply: interruptedReply }, { keepReply: true });
+        const partial = capture.finish(tasks, { reply: interruptedReply }, { interrupted: true });
         chat.appendReply(pendingRevision, true, partial);
         throw error;
       }
