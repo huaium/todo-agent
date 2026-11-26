@@ -1,9 +1,35 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { ChatMessage, QuestionAnswer } from "../shared/chat.ts";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import type { ChatMessage, CreatedTask, QuestionAnswer } from "../shared/chat.ts";
 import { QuestionControls } from "./QuestionControls.tsx";
 import { Button, Spinner } from "@heroui/react";
 
 const examplePrompts = ["帮我记一下买牛奶", "看看我的待办", "今天有哪些任务到期？"];
+
+function CreatedTaskList({ tasks }: { tasks: CreatedTask[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const listId = useId();
+  return (
+    <section className="chat-receipt">
+      <Button
+        size="sm"
+        variant="tertiary"
+        aria-expanded={expanded}
+        aria-controls={listId}
+        onPress={() => setExpanded(!expanded)}
+      >
+        {expanded ? "收起" : "查看"} {tasks.length} 项
+      </Button>
+      <ul id={listId} hidden={!expanded}>
+        {tasks.map(({ id, title, dueDate, dueTime }) => (
+          <li key={id}>
+            <span>{title}</span>
+            <small>{[dueDate, dueTime].filter(Boolean).join(" ") || "未设日期"}</small>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
 
 interface ChatHistoryProps {
   children: ReactNode;
@@ -66,6 +92,9 @@ export function ChatHistory({
                 data-new={index >= restoredCount || undefined}
               >
                 <div>{message.content}</div>
+                {message.role === "assistant" && message.createdTasks && (
+                  <CreatedTaskList tasks={message.createdTasks} />
+                )}
                 {index === messages.length - 1 &&
                   message.role === "assistant" &&
                   message.question && (
