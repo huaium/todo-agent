@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { Button, Modal } from "@heroui/react";
+import { captureKeys, searchKeys } from "./KeyboardHints.tsx";
 
 const primaryAction = ".list-scroll:not([hidden]) [data-task-id] [data-row-primary]:enabled";
 
@@ -93,8 +94,8 @@ export function usePlannerKeyboard(
 }
 
 const shortcuts = [
-  ["Ctrl / ⌘ + K", "聚焦搜索框"],
-  ["Alt + Shift + N", "快速添加任务"],
+  [searchKeys, "聚焦搜索框"],
+  [captureKeys, "快速添加任务"],
   ["F6", "在任务和聊天之间切换"],
   ["↓", "从搜索框或快速添加框进入结果"],
   ["↑ / ↓", "上一个或下一个任务"],

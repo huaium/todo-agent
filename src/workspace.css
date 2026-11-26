@@ -140,6 +140,93 @@
   color: var(--muted);
   font-size: 0.8125rem;
 }
+.key-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+.key-hint kbd {
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface);
+  font: inherit;
+  line-height: 1.4;
+  padding-inline: 4px;
+}
+.shortcut-field {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.shortcut-field input {
+  width: 100%;
+}
+.shortcut-field:has(.field-hints) input {
+  padding-inline-end: var(--field-hint-space, 5.75rem);
+}
+.toolbar .shortcut-field:not(:focus-within) {
+  --field-hint-space: 3.25rem;
+}
+.field-hints {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 8px;
+  display: flex;
+  align-items: center;
+  pointer-events: none;
+}
+.field-results-key,
+.reorder-start-hint,
+.reorder-active-hint {
+  display: none;
+}
+.planner-main:has(.list-scroll:not([hidden]) [data-row-primary]:enabled)
+  .shortcut-field:focus-within {
+  .field-focus-key {
+    display: none;
+  }
+  .field-results-key {
+    display: inline-flex;
+  }
+}
+.task-caption,
+.task-key-hints,
+.chat-key-hints {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+}
+.task-caption,
+.chat-key-hints {
+  margin-bottom: 9px;
+}
+.task-key-hints,
+.reorder-start-hint,
+.reorder-active-hint {
+  margin-inline-start: auto;
+}
+.task-section:has(.sortable-row:focus-visible) {
+  .task-key-hints {
+    display: none;
+  }
+  .reorder-start-hint {
+    display: flex;
+  }
+}
+.task-section:has(.sortable-row[data-moving]:focus-visible) {
+  .reorder-start-hint {
+    display: none;
+  }
+  .reorder-active-hint {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 10px;
+  }
+}
 .rail-foot small,
 .metadata,
 .task-row time,
@@ -246,7 +333,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 9px;
 }
 .task-section h2 small {
   border-radius: 12px;

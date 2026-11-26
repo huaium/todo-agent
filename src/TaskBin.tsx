@@ -5,6 +5,7 @@ import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { SortMenu } from "./SortMenu.tsx";
+import { TaskKeyHints } from "./KeyboardHints.tsx";
 import { binMethods, sortBin, type SortChoice } from "./task-sort.ts";
 
 interface Props {
@@ -60,6 +61,9 @@ export function TaskBin({ items, planner, query, act, sort, changeSort }: Props)
         </div>
       ) : (
         <section className="task-section" aria-label="已删除的任务">
+          <div className="task-caption">
+            <TaskKeyHints bin />
+          </div>
           <ul>
             {sortBin(matches, sort).map((item) => (
               <li key={item.id}>

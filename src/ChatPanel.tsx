@@ -3,6 +3,7 @@ import { Button, Dropdown, Label, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { useConversation } from "./chat-client.ts";
+import { KeyHint } from "./KeyboardHints.tsx";
 import type { ApprovalMode, ChatMessage, ViewContext, SortChange } from "../shared/chat.ts";
 function sessionValue(key: string, value?: string) {
   try {
@@ -245,6 +246,15 @@ export function ChatPanel({
         }}
       >
         {error && <p role="alert">{error}</p>}
+        <div className="chat-key-hints">
+          <KeyHint keys="F6">切换面板</KeyHint>
+          {!busy && (
+            <>
+              <KeyHint keys="Enter">发送</KeyHint>
+              <KeyHint keys="Shift Enter">换行</KeyHint>
+            </>
+          )}
+        </div>
         <TextArea
           variant="secondary"
           ref={input}

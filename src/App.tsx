@@ -9,6 +9,7 @@ import { TaskEditor } from "./TaskEditor.tsx";
 import { ChatPanel } from "./ChatPanel.tsx";
 import { ThemeControl } from "./ThemeControl.tsx";
 import { KeyboardHelp, usePlannerKeyboard } from "./PlannerKeyboard.tsx";
+import { ShortcutField, searchKeys, captureKeys } from "./KeyboardHints.tsx";
 import { usePlanner } from "./planner-client.ts";
 import { cancelTaskRowAnimations, publishTaskRows, revealTaskResults } from "./task-row-motion.ts";
 import { SortMenu } from "./SortMenu.tsx";
@@ -357,15 +358,17 @@ export default function App() {
           >
             ☰
           </Button>
-          <Input
-            className="search"
-            aria-keyshortcuts="Control+K Meta+K"
-            type="search"
-            aria-label={showBin ? "搜索回收站" : "搜索任务"}
-            placeholder={showBin ? "搜索回收站" : "搜索任务、清单或标签"}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
+          <ShortcutField keys={selectedTask ? undefined : searchKeys}>
+            <Input
+              className="search"
+              aria-keyshortcuts={selectedTask ? undefined : "Control+K Meta+K"}
+              type="search"
+              aria-label={showBin ? "搜索回收站" : "搜索任务"}
+              placeholder={showBin ? "搜索回收站" : "搜索任务、清单或标签"}
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </ShortcutField>
           {!showBin && (
             <Button
               variant={filtered || filters ? "secondary" : "tertiary"}
@@ -523,23 +526,25 @@ export default function App() {
               >
                 ＋
               </Button>
-              <Input
-                aria-label="快速添加任务"
-                aria-keyshortcuts="Alt+Shift+N"
-                ref={capture}
-                maxLength={200}
-                placeholder="添加任务…"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                readOnly={saving}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
-                  )
-                    e.preventDefault();
-                }}
-              />
+              <ShortcutField keys={captureKeys}>
+                <Input
+                  aria-label="快速添加任务"
+                  aria-keyshortcuts="Alt+Shift+N"
+                  ref={capture}
+                  maxLength={200}
+                  placeholder="添加任务…"
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  readOnly={saving}
+                  onKeyDown={(e) => {
+                    if (
+                      e.key === "Enter" &&
+                      (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                    )
+                      e.preventDefault();
+                  }}
+                />
+              </ShortcutField>
             </form>
             {captureError && <p role="alert">{captureError}</p>}
             {ready ? (
