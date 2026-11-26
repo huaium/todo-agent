@@ -503,6 +503,18 @@
 .chat-settings .modal__body {
   margin-block-start: 1.5rem;
 }
+.manage-speech-model {
+  margin-block-start: 1rem;
+}
+.speech-model-body {
+  display: grid;
+  gap: 0.5rem;
+  margin-block-start: 1rem;
+}
+.speech-model-body progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
 .chat-settings .switch__content {
   width: 100%;
   justify-content: space-between;

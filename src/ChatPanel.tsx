@@ -3,6 +3,7 @@ import { Button, Dropdown, Label, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { ChatSettings, useSendShortcut } from "./ChatSettings.tsx";
+import { ModelDownload, useSpeechModel } from "./speech/ModelDownload.tsx";
 import { useConversation } from "./chat-client.ts";
 import { KeyHint } from "./KeyboardHints.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -51,6 +52,8 @@ export function ChatPanel({
   const { state, active, error, reload, submit } = useConversation();
   const [draft, setDraft] = useState("");
   const [shiftToSend, chooseSendShortcut] = useSendShortcut();
+  const speechModel = useSpeechModel();
+  const [showModel, setShowModel] = useState(false);
   const [clearRevision, setClearRevision] = useState<number | null>(null);
   const busy = !state || !!active || state.pending;
   const sending = active?.action === "send" && active.revision === state?.revision;
@@ -126,7 +129,11 @@ export function ChatPanel({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
-        <ChatSettings shiftToSend={shiftToSend} onChange={chooseSendShortcut} />
+        <ChatSettings
+          shiftToSend={shiftToSend}
+          onChange={chooseSendShortcut}
+          manageSpeechModel={() => setShowModel(true)}
+        />
         {!!state?.messages.length && (
           <IconButton
             size="sm"
@@ -158,6 +165,7 @@ export function ChatPanel({
           return true;
         }}
       />
+      <ModelDownload model={speechModel} open={showModel} close={() => setShowModel(false)} />
       {state ? (
         <ChatHistory
           messages={history}

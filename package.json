@@ -7,7 +7,7 @@
     "storage:export": "node server/storage-export.ts",
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
     "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && npm run build:speech && tailwindcss -i src/theme.css -o dist/theme.css --minify",
-    "build:speech": "esbuild src/speech/recognize.ts --bundle --format=esm --minify --outdir=dist/speech && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.* dist/speech/",
+    "build:speech": "esbuild src/speech/recognize.ts src/speech/download.ts --bundle --format=esm --minify --outdir=dist/speech && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.* dist/speech/",
     "start": "node --env-file-if-exists=.env server/index.ts",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.browser.json",
     "test": "node --test server/*.test.ts",

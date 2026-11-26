@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Description, Label, Modal, Switch } from "@heroui/react";
+import { Button, Description, Label, Modal, Switch } from "@heroui/react";
 import { IconButton } from "./IconButton.tsx";
 
 const preferenceKey = "tokenow.chat.sendShortcut";
@@ -43,9 +43,11 @@ export function useSendShortcut() {
 export function ChatSettings({
   shiftToSend,
   onChange,
+  manageSpeechModel,
 }: {
   shiftToSend: boolean;
   onChange(shift: boolean): void;
+  manageSpeechModel(): void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -75,6 +77,17 @@ export function ChatSettings({
                 </Switch.Content>
                 <Description>{shiftToSend ? "Enter" : "Shift + Enter"} 换行</Description>
               </Switch>
+              <Button
+                className="manage-speech-model"
+                size="sm"
+                variant="tertiary"
+                onPress={() => {
+                  setOpen(false);
+                  manageSpeechModel();
+                }}
+              >
+                管理语音模型
+              </Button>
             </Modal.Body>
           </Modal.Dialog>
         </Modal.Container>
