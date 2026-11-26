@@ -63,6 +63,9 @@ export function ModelDownload({
           <Modal.Body className="speech-model-body">
             <strong>Whisper Small</strong>
             <p>中文语音在此设备上识别。首次下载模型和运行文件约 {size} MB。</p>
+            <p>
+              模型从 Hugging Face 下载，请使用能稳定访问 huggingface.co 的网络。下载中断后可继续。
+            </p>
             {progress && (
               <>
                 <progress aria-label="模型下载进度" max={modelBytes} value={bytes} />
