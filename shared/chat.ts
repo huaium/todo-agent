@@ -25,6 +25,7 @@ const candidateSchema = z.object({
   id: z.string(),
   title: z.string(),
   list: z.string(),
+  parentPath: z.array(z.string()).optional(),
   dueDate: z.iso.date().nullable(),
   dueTime: z.iso.time({ precision: -1 }).nullable(),
   version: z.string(),

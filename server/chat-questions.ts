@@ -4,18 +4,30 @@ import { inbox, localMinute, offsetDate, type Planner } from "../shared/planner.
 import { PlannerError } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
 import { requestTask } from "./task-request.ts";
+import { choiceDescription } from "../shared/task-choice.ts";
 
 export function candidate(planner: Planner, id: string) {
   const task = planner.tasks.find((t) => t.id === id);
   if (!task) return;
   const list = planner.lists.find((l) => l.id === (task.listId ?? inbox))?.name ?? "收件箱";
+  const parentPath: string[] = [];
+  const seen = new Set([id]);
+  let parentId = task.parentId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = planner.tasks.find((t) => t.id === parentId);
+    if (!parent) break;
+    parentPath.unshift(parent.title);
+    parentId = parent.parentId;
+  }
   const version = createHash("sha256")
-    .update(JSON.stringify([task, list]))
+    .update(JSON.stringify([task, list, ...parentPath]))
     .digest("hex");
   return {
     id,
     title: task.title,
     list,
+    ...(parentPath.length && { parentPath }),
     dueDate: task.dueDate ?? null,
     dueTime: task.dueTime ?? null,
     version,
@@ -52,7 +64,7 @@ export function answerLabel(q: ChatQuestion, a: QuestionAnswer) {
     return [a.date, a.time].filter(Boolean).join(" ");
   if (q.kind === "choice" && a.kind === "choose") {
     const t = q.tasks.find((t) => t.id === a.taskId);
-    if (t) return `${t.title} · ${t.list} · ${t.dueDate ?? "无截止日期"}`;
+    if (t) return `${t.title} · ${choiceDescription(t, q.tasks)}`;
   }
   throw new PlannerError("请选择当前问题中的选项。");
 }

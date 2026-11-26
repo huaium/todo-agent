@@ -11,6 +11,34 @@ import { choiceQuestion, deadlineQuestion } from "./chat-questions.ts";
 import { openConversation } from "./conversation.ts";
 import { createTaskStore, type TaskStore } from "./task-store.ts";
 import { openDatabase } from "./database.ts";
+import { choiceDescription } from "../shared/task-choice.ts";
+
+test("duplicate subtask choices show parent paths and refresh after a parent rename", async (t) => {
+  const { q, store, answer } = await restore(t, (store) => {
+    const ids = ["论文", "合同"].map(
+      (title) => store.create("校对", { parentId: store.create(title).id }).id,
+    );
+    return choiceQuestion(store.snapshot(), ids, { kind: "delete" })!;
+  });
+  assert.ok(q.kind === "choice");
+  assert.match(choiceDescription(q.tasks[0], q.tasks), /论文/);
+  assert.match(choiceDescription(q.tasks[1], q.tasks), /合同/);
+  store.update(store.list()[0].id, { title: "文章" });
+  const next: Conversation = await (
+    await answer(1, q.id, { kind: "choose", taskId: q.tasks[0].id })
+  ).json();
+  const revised = next.messages.at(-1)?.question;
+  assert.ok(revised?.kind === "choice");
+  assert.match(choiceDescription(revised.tasks[0], revised.tasks), /文章/);
+  await answer(next.revision, revised.id, { kind: "choose", taskId: q.tasks[0].id });
+  assert.deepEqual(
+    store
+      .list()
+      .filter((task) => task.title === "校对")
+      .map((t) => t.id),
+    [q.tasks[1].id],
+  );
+});
 
 async function restore(t: TestContext, setup: (store: TaskStore) => ChatQuestion) {
   const dir = await mkdtemp(join(tmpdir(), "planner-questions-"));

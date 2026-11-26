@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatQuestion, QuestionAnswer } from "../shared/chat.ts";
 import { Button } from "@heroui/react";
 import { PlannerDate, PlannerTime } from "./ScheduleFields.tsx";
+import { choiceDescription } from "../shared/task-choice.ts";
 
 function DeadlineChoices({
   question,
@@ -64,10 +65,7 @@ export function QuestionControls({
               onPress={() => onAnswer({ kind: "choose", taskId: t.id })}
             >
               <strong>{t.title}</strong>
-              <span>
-                {t.list} ·{" "}
-                {t.dueDate ? [t.dueDate, t.dueTime].filter(Boolean).join(" ") : "无截止日期"}
-              </span>
+              <span>{choiceDescription(t, q.tasks)}</span>
             </Button>
           ))}
           <Button variant="ghost" size="sm" onPress={dismiss}>
