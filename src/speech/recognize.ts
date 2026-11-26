@@ -1,4 +1,8 @@
 import { env, pipeline } from "@huggingface/transformers";
+import { ConverterFactory } from "opencc-js/core";
+import { to } from "opencc-js/preset/t2cn";
+
+const toSimplified = ConverterFactory(to.cn);
 
 // Model fetches resolve exclusively to the files the user downloaded.
 async function loadRecognizer(files: FileSystemDirectoryHandle) {
@@ -46,7 +50,7 @@ self.onmessage = async ({
       return_timestamps: false,
     });
     if (Array.isArray(result)) throw new Error("语音识别结果格式异常。");
-    self.postMessage({ text: result.text.trim() });
+    self.postMessage({ text: toSimplified(result.text.trim()) });
   } catch (error) {
     self.postMessage({ error: error instanceof Error ? error.message : "语音识别失败。" });
   }
