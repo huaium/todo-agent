@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Dropdown, Label, TextArea } from "@heroui/react";
 import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
+import { ChatSettings, useSendShortcut } from "./ChatSettings.tsx";
 import { useConversation } from "./chat-client.ts";
 import { KeyHint } from "./KeyboardHints.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -49,6 +50,7 @@ export function ChatPanel({
   const appliedTurn = useRef(initialTurn);
   const { state, active, error, reload, submit } = useConversation();
   const [draft, setDraft] = useState("");
+  const [shiftToSend, chooseSendShortcut] = useSendShortcut();
   const [clearRevision, setClearRevision] = useState<number | null>(null);
   const busy = !state || !!active || state.pending;
   const sending = active?.action === "send" && active.revision === state?.revision;
@@ -124,6 +126,7 @@ export function ChatPanel({
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
+        <ChatSettings shiftToSend={shiftToSend} onChange={chooseSendShortcut} />
         {!!state?.messages.length && (
           <IconButton
             size="sm"
@@ -251,8 +254,8 @@ export function ChatPanel({
           <KeyHint keys="F6">切换面板</KeyHint>
           {!busy && (
             <>
-              <KeyHint keys="Enter">发送</KeyHint>
-              <KeyHint keys="Shift Enter">换行</KeyHint>
+              <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
+              <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
             </>
           )}
         </div>
@@ -269,12 +272,15 @@ export function ChatPanel({
           onKeyDown={(e) => {
             if (
               e.key === "Enter" &&
-              !e.shiftKey &&
+              e.shiftKey === shiftToSend &&
+              !e.altKey &&
+              !e.ctrlKey &&
+              !e.metaKey &&
               !e.nativeEvent.isComposing &&
               e.nativeEvent.keyCode !== 229
             ) {
               e.preventDefault();
-              void send(draft);
+              if (!e.repeat) void send(draft);
             }
           }}
         />
@@ -285,6 +291,7 @@ export function ChatPanel({
           isIconOnly
           isDisabled={busy || !draft.trim()}
           aria-label="发送消息"
+          aria-keyshortcuts={shiftToSend ? "Shift+Enter" : "Enter"}
         >
           <svg
             width="18"

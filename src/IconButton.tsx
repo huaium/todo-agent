@@ -2,6 +2,12 @@ import { Button, Tooltip } from "@heroui/react";
 import type { ComponentProps } from "react";
 
 const paths = {
+  settings: (
+    <>
+      <path d="m10 3-.5 2.2-1.8 1-2.1-.7-2 3.5 1.6 1.5v2.2L3.6 14.3l2 3.5 2.1-.7 1.8 1 .5 2.3h4l.5-2.3 1.8-1 2.1.7 2-3.5-1.6-1.6v-2.2l1.6-1.5-2-3.5-2.1.7-1.8-1L14 3Z" />
+      <circle cx="12" cy="11.7" r="3" />
+    </>
+  ),
   auto: (
     <>
       <circle cx="12" cy="12" r="9" />
