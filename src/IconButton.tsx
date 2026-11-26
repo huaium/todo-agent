@@ -3,7 +3,10 @@ import type { ComponentProps } from "react";
 
 const paths = {
   auto: (
-    <path d="M4 4.5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM12 17.5v3M8 20.5h8" />
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor" stroke="none" />
+    </>
   ),
   light: (
     <>
