@@ -118,7 +118,36 @@ export function readLegacyFiles(directory: string) {
     },
   );
   const bin = readLegacy(join(directory, "tasks.bin.json"), [], (value) => binSchema.parse(value));
-  return { planner, chat, bin };
+  const fallbackOrder = [...planner.tasks.map((t) => t.id), ...bin.map((entry) => entry.task.id)];
+  const creationOrder = readLegacy(join(directory, "tasks.order.json"), fallbackOrder, (value) =>
+    z.array(z.string()).parse(value),
+  );
+  deepStrictEqual(creationOrder.toSorted(), fallbackOrder.toSorted());
+  return { planner, chat, bin, creationOrder };
+}
+
+const creationSchema = `
+  CREATE TABLE task_creation(seq INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE) STRICT;
+  INSERT INTO task_creation(id) SELECT id FROM tasks ORDER BY position;
+  INSERT INTO task_creation(id) SELECT id FROM task_bin ORDER BY deleted_at,id;
+  CREATE TRIGGER remember_creation AFTER INSERT ON tasks BEGIN
+    INSERT OR IGNORE INTO task_creation(id) VALUES(NEW.id);
+  END;
+  CREATE TRIGGER forget_creation AFTER DELETE ON task_bin WHEN NOT EXISTS (SELECT 1 FROM tasks WHERE id=OLD.id) BEGIN
+    DELETE FROM task_creation WHERE id=OLD.id;
+  END;
+`;
+export function readCreationOrder(db: DatabaseSync, now: number): string[] {
+  if (Number(db.prepare("PRAGMA user_version").get()?.user_version) < 5)
+    return [
+      ...readTasks(db).map((t) => t.id),
+      ...readBinBackup(db, now).map((entry) => entry.task.id),
+    ];
+  return db
+    .prepare(`SELECT id FROM task_creation WHERE id IN (SELECT id FROM tasks UNION ALL
+    SELECT id FROM task_bin WHERE deleted_at>?) ORDER BY seq`)
+    .all(now - binRetentionMs)
+    .map((row) => String(row.id));
 }
 
 export function readTasks(db: DatabaseSync): PlannerTask[] {
@@ -204,7 +233,7 @@ const schema = `
   CREATE TABLE messages(seq INTEGER PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('user','assistant')), content TEXT NOT NULL, question TEXT, sort_change TEXT) STRICT;
 `;
 function importDatabase(directory: string, filename: string) {
-  const { planner, chat, bin } = readLegacyFiles(directory);
+  const { planner, chat, bin, creationOrder } = readLegacyFiles(directory);
   const staging = mkdtempSync(join(directory, ".sqlite-import-"));
   const path = join(staging, "planner.sqlite");
   try {
@@ -214,6 +243,9 @@ function importDatabase(directory: string, filename: string) {
       transaction(db, () => {
         db.exec(schema);
         db.exec(binTable);
+        db.exec(creationSchema);
+        const remember = db.prepare("INSERT INTO task_creation(id) VALUES(?)");
+        for (const id of creationOrder) remember.run(id);
         db.exec(approvalColumns);
         db.prepare("INSERT INTO settings VALUES(1,?)").run(planner.timeZone);
         const list = db.prepare("INSERT INTO lists(id,name) VALUES(?,?)");
@@ -224,7 +256,10 @@ function importDatabase(directory: string, filename: string) {
           "INSERT INTO task_bin(id,deleted_at,payload,series) VALUES(?,?,?,?)",
         );
         for (const entry of bin) {
-          if (entry.deletedAt <= Date.now() - binRetentionMs) continue;
+          if (entry.deletedAt <= Date.now() - binRetentionMs) {
+            db.prepare("DELETE FROM task_creation WHERE id=?").run(entry.task.id);
+            continue;
+          }
           archived.run(
             entry.task.id,
             entry.deletedAt,
@@ -244,7 +279,7 @@ function importDatabase(directory: string, filename: string) {
         for (const message of chat.messages) insertMessage(db, message);
         deepStrictEqual(readPlannerDocument(db), planner);
         deepStrictEqual(readConversation(db), chat);
-        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=4");
+        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=5");
       });
     } finally {
       db.close();
@@ -267,12 +302,12 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (
       db.prepare("PRAGMA application_id").get()?.application_id !== 1414480975 ||
-      (version !== 1 && version !== 2 && version !== 3 && version !== 4)
+      (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 4 && !readOnly)
+    if (version !== 5 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -284,6 +319,10 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
         }
         if (db.prepare("PRAGMA user_version").get()?.user_version === 3)
           db.exec("ALTER TABLE messages ADD COLUMN sort_change TEXT; PRAGMA user_version=4");
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 4) {
+          db.exec(creationSchema);
+          db.exec("PRAGMA user_version=5");
+        }
       });
     return db;
   } catch (error) {

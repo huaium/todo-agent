@@ -5,6 +5,7 @@ import {
   openDatabase,
   readBinBackup,
   readConversation,
+  readCreationOrder,
   readLegacyFiles,
   readPlannerDocument,
   transaction,
@@ -14,12 +15,14 @@ export function exportStorage(directory: string, destination: string) {
   const db = openDatabase(directory, true);
   let snapshot;
   try {
+    const now = Date.now();
     snapshot = transaction(
       db,
       () => ({
         planner: readPlannerDocument(db),
         chat: readConversation(db),
-        bin: readBinBackup(db),
+        bin: readBinBackup(db, now),
+        creationOrder: readCreationOrder(db, now),
       }),
       "DEFERRED",
     );
@@ -36,6 +39,11 @@ export function exportStorage(directory: string, destination: string) {
       options,
     );
     writeFileSync(join(staging, "tasks.json.chat.json"), JSON.stringify(snapshot.chat), options);
+    writeFileSync(
+      join(staging, "tasks.order.json"),
+      JSON.stringify(snapshot.creationOrder),
+      options,
+    );
     if (snapshot.bin.length)
       writeFileSync(join(staging, "tasks.bin.json"), JSON.stringify(snapshot.bin), options);
     deepStrictEqual(readLegacyFiles(staging), snapshot);

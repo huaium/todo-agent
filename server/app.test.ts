@@ -82,6 +82,22 @@ test("stale autosaves return the current task without writing", async (t) => {
   assert.deepEqual(store.list(), [first.body]);
 });
 
+test("manual moves and bin restores preserve creation order in the public API", async (t) => {
+  const { request, store } = await startTestApp(t);
+  const a = store.create("A"),
+    b = store.create("B");
+  await request("POST", "/api/planner/tasks/order", {
+    previous: [a.id, b.id],
+    ordered: [b.id, a.id],
+  });
+  assert.deepEqual((await request("GET", "/api/planner")).body.tasks, [b, a]);
+  assert.deepEqual((await request("GET", "/api/tasks")).body, [a, b]);
+  store.remove(a.id);
+  const c = store.create("C");
+  store.restore(a.id, store.bin()[0].deletedAt);
+  assert.deepEqual((await request("GET", "/api/tasks")).body, [a, b, c]);
+});
+
 test("relative movement rejects a changed anchor before promoting a child", async (t) => {
   const { store, request } = await startTestApp(t);
   const anchor = store.create("开会"),

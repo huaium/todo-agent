@@ -14,7 +14,7 @@ export function taskRouter(tasks: TaskStore) {
   const router = Router();
 
   router.get("/", (_req, res) => {
-    res.json(tasks.list());
+    res.json(tasks.listByCreation());
   });
 
   router.post("/", (req, res) => {

@@ -17,6 +17,7 @@ import {
 type Changes = Partial<Pick<PlannerTask, "title" | "done">> & TaskDetails;
 export interface TaskStore {
   list(): PlannerTask[];
+  listByCreation(): PlannerTask[];
   snapshot(): Planner;
   initializeZone(zone: string): void;
   create(title: string, details?: TaskDetails): PlannerTask;
@@ -228,6 +229,11 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
   }
   return {
     list: () => readTasks(db),
+    listByCreation: () =>
+      db
+        .prepare("SELECT payload FROM task_creation JOIN tasks USING(id) ORDER BY seq")
+        .all()
+        .map((row) => JSON.parse(String(row.payload))),
     snapshot: () => readPlanner(db),
     initializeZone(value) {
       if (db.prepare("SELECT time_zone FROM settings WHERE id=1").get()!.time_zone) return;
