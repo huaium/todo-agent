@@ -7,7 +7,6 @@ import { ReorderTasks, type RowControls } from "./ReorderTasks.tsx";
 import type { SortChoice } from "./task-sort.ts";
 interface Props {
   items: PlannerTask[];
-  tasks: PlannerTask[];
   lists: Planner["lists"];
   view: string;
   sort: SortChoice;
@@ -20,7 +19,6 @@ interface Props {
 }
 export function TaskList({
   items,
-  tasks,
   lists,
   view,
   sort,
@@ -63,7 +61,7 @@ export function TaskList({
       setConfirmation({ text: (task.done ? "已重新打开「" : "已完成「") + task.title + "」" });
   }
   const byParent = new Map<string, PlannerTask[]>();
-  for (const t of tasks) {
+  for (const t of items) {
     if (t.parentId) {
       const siblings = byParent.get(t.parentId) ?? [];
       siblings.push(t);
@@ -75,8 +73,15 @@ export function TaskList({
       setConfirmation({ text: `「${task.title}」已移至第 ${ordered.indexOf(task.id) + 1} 位。` });
     else await refresh();
   }
-  function render(task: PlannerTask, ancestors: Set<string>, controls?: RowControls) {
-    const children = (byParent.get(task.id) ?? []).filter((t) => !ancestors.has(t.id));
+  function render(
+    task: PlannerTask,
+    groupIds: Set<string>,
+    ancestors: Set<string>,
+    controls?: RowControls,
+  ) {
+    const children = (byParent.get(task.id) ?? []).filter(
+      (t) => groupIds.has(t.id) && !ancestors.has(t.id),
+    );
     const list = lists.find((l) => l.id === (task.listId ?? inbox));
     const meta = [
       view !== "list:" + list?.id && list?.name,
@@ -184,7 +189,7 @@ export function TaskList({
             manual={manual}
             save={saveOrder}
             render={(child, childControls) =>
-              render(child, new Set([...ancestors, task.id]), childControls)
+              render(child, groupIds, new Set([...ancestors, task.id]), childControls)
             }
           />
         )}
@@ -212,7 +217,7 @@ export function TaskList({
               rows={rows.filter((t) => !t.parentId || !ids.has(t.parentId))}
               manual={manual}
               save={saveOrder}
-              render={(task, controls) => render(task, new Set(), controls)}
+              render={(task, controls) => render(task, ids, new Set(), controls)}
             />
           </section>
         );

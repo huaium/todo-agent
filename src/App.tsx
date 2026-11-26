@@ -618,7 +618,6 @@ export default function App() {
                 items={items}
                 sort={sort}
                 refresh={refresh}
-                tasks={orderedTasks}
                 lists={data.lists}
                 view={view}
                 today={today}
