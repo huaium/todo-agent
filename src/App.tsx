@@ -297,7 +297,7 @@ export default function App() {
                     <Modal.Heading>新建清单</Modal.Heading>
                   </Modal.Header>
                   <Modal.Body>
-                    <form id="create-list" onSubmit={saveList}>
+                    <form id="create-list" autoComplete="off" onSubmit={saveList}>
                       <TextField
                         aria-label="清单名称"
                         value={listName}
@@ -309,6 +309,7 @@ export default function App() {
                       >
                         <Input
                           autoFocus
+                          autoComplete="off"
                           maxLength={80}
                           placeholder="输入清单名称"
                           onKeyDown={(e) => {
