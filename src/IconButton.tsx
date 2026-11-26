@@ -1,7 +1,18 @@
 import { Button, Tooltip } from "@heroui/react";
 import type { ComponentProps } from "react";
 
+const bell = <path d="M18 10a6 6 0 0 0-12 0c0 5-2 6-2 7h16c0-1-2-2-2-7ZM10 20a2.3 2.3 0 0 0 4 0" />;
 const paths = {
+  bell,
+  bellOn: (
+    <>
+      {bell}
+      <path d="m9.5 10.5 1.7 1.7 3.3-3.4" />
+    </>
+  ),
+  bellOff: (
+    <path d="m3 3 18 18M9.6 4.5A6 6 0 0 1 18 10c0 1.4.2 2.6.5 3.5M6.3 7.8A7 7 0 0 0 6 10c0 5-2 6-2 7h13M10 20a2.3 2.3 0 0 0 4 0" />
+  ),
   microphone: (
     <>
       <rect x="9" y="2" width="6" height="13" rx="3" />

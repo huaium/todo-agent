@@ -145,6 +145,9 @@
   align-items: center;
   padding-inline-start: calc(var(--spacing) * 3);
 }
+.notification-control[aria-disabled="true"] {
+  pointer-events: auto;
+}
 .key-hint {
   display: inline-flex;
   align-items: center;

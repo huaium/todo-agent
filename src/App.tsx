@@ -25,6 +25,13 @@ const views = [
   ["done", "已完成", "✓"],
 ] as const;
 
+const notificationControls = {
+  default: { icon: "bell", label: "开启浏览器通知" },
+  granted: { icon: "bellOn", label: "浏览器通知已开启" },
+  denied: { icon: "bellOff", label: "浏览器已阻止通知" },
+  unsupported: { icon: "bellOff", label: "使用应用内提醒" },
+} as const;
+
 export default function App() {
   const [activeView, setView] = useState("today");
   const [query, setQuery] = useState("");
@@ -83,7 +90,7 @@ export default function App() {
   const [deleteList, setDeleteList] = useState(false);
   const [deleteTaskId, setDeleteTaskId] = useState<string | null>(null);
   const listMenu = useRef<HTMLButtonElement>(null);
-  const [notifications, setNotifications] = useState(() =>
+  const [notifications, setNotifications] = useState<keyof typeof notificationControls>(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
   const [remindersOpen, setRemindersOpen] = useState(true);
@@ -391,20 +398,14 @@ export default function App() {
         )}
         <div className="rail-foot">
           <ThemeControl />
-          <Button
+          <IconButton
             variant="tertiary"
             size="sm"
-            onPress={notify}
-            isDisabled={notifications !== "default"}
-          >
-            {notifications === "granted"
-              ? "✓ 浏览器通知已开启"
-              : notifications === "denied"
-                ? "浏览器已阻止通知"
-                : notifications === "unsupported"
-                  ? "使用应用内提醒"
-                  : "开启浏览器通知"}
-          </Button>
+            {...notificationControls[notifications]}
+            className="notification-control"
+            onPress={notifications === "default" ? notify : undefined}
+            aria-disabled={notifications !== "default"}
+          />
           <small>{data.timeZone}</small>
         </div>
       </nav>
