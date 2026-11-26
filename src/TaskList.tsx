@@ -173,7 +173,13 @@ export function TaskList({
             <span aria-hidden="true">{task.starred ? "★" : "☆"}</span>
           </Button>
           <Dropdown>
-            <Button variant="ghost" isIconOnly size="sm" aria-label={"操作" + task.title}>
+            <Button
+              variant="ghost"
+              isIconOnly
+              size="sm"
+              className="row-menu"
+              aria-label={"操作" + task.title}
+            >
               ···
             </Button>
             <Dropdown.Popover>

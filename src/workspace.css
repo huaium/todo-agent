@@ -989,46 +989,92 @@
   .task-row {
     gap: 3px;
   }
+  .task-section:has(.task-entry) {
+    --card-end-padding: 0px;
+    --card-gutter: 10px;
+  }
   .task-entry {
+    --row-action-size: 44px;
+    --row-gap: 3px;
     display: grid;
-    grid-template-columns: auto [title] minmax(0, 1fr) auto auto;
-    align-content: center;
-    row-gap: 0;
-    padding-block: 4px;
+    grid-template-columns: [check] auto [title] minmax(0, 1fr) [star] var(
+        --row-action-size
+      ) [more] var(--row-action-size);
+    column-gap: var(--row-gap);
+    align-items: start;
+    min-height: 56px;
+    padding-block: 6px;
   }
   .task-entry:has(> .reorder-grip) {
-    grid-template-columns: 44px auto [title] minmax(0, 1fr) auto auto;
+    grid-template-columns: var(--row-action-size) [check] auto [title] minmax(0, 1fr) [star] var(
+        --row-action-size
+      ) [more] var(--row-action-size);
+  }
+  .task-entry > .reorder-grip {
+    grid-area: 1 / 1;
+  }
+  .task-entry > .circle-check {
+    grid-area: 1 / check;
+  }
+  .task-entry > .star {
+    grid-area: 1 / star;
+  }
+  .task-entry > .row-menu {
+    grid-area: 1 / more;
   }
   .task-entry .row-text {
-    display: contents;
+    grid-area: 1 / title / auto / -1;
+  }
+  /* Reserve the two action targets on the first lines. Later lines use the full width. */
+  .task-entry .row-text::before {
+    content: "";
+    float: inline-end;
+    width: calc(2 * (var(--row-action-size) + var(--row-gap)));
+    height: var(--row-action-size);
   }
   .task-entry .title-button {
-    grid-column: title;
-    justify-self: start;
+    display: flex;
+    max-width: calc(100% - 2 * (var(--row-action-size) + var(--row-gap)));
+    padding: 0;
+    line-height: 22px;
+  }
+  .task-entry .row-text:has(.metadata) .title-button {
+    min-height: 22px;
+    z-index: 1;
+  }
+  .task-entry .row-text:has(.metadata) .title-button::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 -22px;
   }
   .task-entry .desktop-due {
     display: none;
   }
   .task-entry .metadata {
-    grid-area: 2 / title / auto / -1;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 2px 14px;
-    padding-bottom: 4px;
+    display: block;
+    margin-top: 2px;
     overflow: clip;
     overflow-clip-margin: 4px;
     font-size: 0.8125rem;
-    line-height: 1.125rem;
+    line-height: 20px;
+  }
+  .task-entry .metadata > .button {
+    z-index: 2;
   }
   .task-detail {
-    flex: none;
+    display: inline-block;
+    vertical-align: top;
     max-width: 100%;
+    margin-inline-end: 12px;
+    line-height: 18px;
     position: relative;
   }
+  .task-detail:last-child {
+    margin-inline-end: 0;
+  }
   .task-entry .mobile-due {
-    display: inline;
-    font: inherit;
+    display: inline-block;
+    font-size: inherit;
     white-space: nowrap;
   }
   /* A separator sits in the gap and is clipped at the start of each wrapped line. */
