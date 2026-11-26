@@ -49,7 +49,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     let preview: BulkPreview | undefined;
     let interactionResult: QuestionResult | undefined;
     const answer = reply
-      ? { reply: await reply(messages), keepReply: false }
+      ? { message: await reply(messages) }
       : await agentReply(
           messages,
           taskTools(
@@ -64,6 +64,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
                   previous,
                   respond(result) {
                     interactionResult = result;
+                    for (const card of result.presentation?.cards ?? []) capture.add(card);
                   },
                 }
               : undefined,
@@ -89,13 +90,12 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     return capture.finish(
       tasks,
       {
-        reply: preview ? answer.reply : (interactionResult?.reply ?? answer.reply),
+        reply: answer.receipt ?? interactionResult?.reply ?? "",
         preview,
         question: preview ? undefined : interactionResult?.question,
         sortChange,
-        presentation: interactionResult?.presentation,
       },
-      { interactive, keepReply: answer.keepReply, keepNote: answer.keepNote },
+      { interactive, message: answer.message },
     );
   }
 

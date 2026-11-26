@@ -12,8 +12,8 @@ import { createTaskStore } from "./task-store.ts";
 import { openDatabase } from "./database.ts";
 import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
-import { candidate } from "./chat-questions.ts";
-import { workspaceContext } from "./agent.ts";
+import { candidate, choiceQuestion } from "./chat-questions.ts";
+import { completedReply, workspaceContext } from "./agent.ts";
 import { bulkPreviews } from "./planner.ts";
 import { ChatCapture } from "./chat-capture.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
@@ -95,11 +95,11 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
   );
   assert.equal(followup.question?.kind, "deadline");
   assert.ok(followup.question?.kind === "deadline" && followup.question.task.id === pickup.id);
-  assert.equal(
-    single.finish(store, { reply: "已记下。" }, { interactive: true, keepReply: true }).question
-      ?.kind,
-    "deadline",
-  );
+  const advice = "先核对取件码，再去驿站。";
+  const mixed = single.finish(store, { reply: "已记下。" }, { interactive: true, message: advice });
+  assert.equal(mixed.question?.kind, "deadline");
+  assert.ok(mixed.reply.includes(advice));
+  assert.equal(mixed.presentation?.note, advice);
 });
 
 test("only displayed searches and successful edits generate immutable chat cards", async (t) => {
@@ -107,8 +107,14 @@ test("only displayed searches and successful edits generate immutable chat cards
   const task = store.create("收货", { dueDate: "2030-01-01", reminder: "2029-12-31T12:00" });
   const capture = new ChatCapture("查询并改期");
   const tools = taskTools(port, store, undefined, undefined, undefined, undefined, capture);
-  const run = (name: string, args: object) =>
-    tools.find((tool) => tool.name === name)!.execute("call", args);
+  const run = async (name: string, args: object) => {
+    const result = await tools.find((tool) => tool.name === name)!.execute("call", args);
+    assert.equal(
+      completedReply([{ toolName: name, isError: !!result.isError, details: result.details }]),
+      undefined,
+    );
+    return result;
+  };
   const finish = () => capture.finish(store, { reply: "已处理" });
   await run("listTasks", { query: "收货" });
   await run("setTaskDetails", { id: "missing", changes: { dueDate: "2030-01-02" } });
@@ -133,6 +139,35 @@ test("only displayed searches and successful edits generate immutable chat cards
   assert.equal(cards[1].tasks[0].dueDate, "2030-01-02");
   assert.deepEqual(cards[1].tasks[0].details, ["提醒 · 2030-01-01 10:00"]);
 });
+
+test(
+  "实时复合请求能完成选择、继续创建并在卡片旁保留解释",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, store, chat } = await startTestApp(t);
+    const first = store.create("报告"),
+      second = store.create("报告");
+    const question = choiceQuestion(store.snapshot(), [first.id, second.id], {
+      kind: "update",
+      changes: { done: true },
+    })!;
+    chat.appendReply(0, false, { reply: "你指的是哪一条报告？", question });
+    const { status, body } = await request("POST", "/api/chat", {
+      action: "send",
+      revision: 1,
+      text: "把第二个报告标为完成，再记一条买牛奶，并用一句话解释准备报告的步骤。",
+    });
+    assert.equal(status, 200);
+    assert.equal(store.list().find((t) => t.id === second.id)?.done, true);
+    assert.equal(store.list().find((t) => t.id === first.id)?.done, false);
+    assert.equal(store.list().filter((t) => t.title.includes("买牛奶")).length, 1);
+    const saved = body.messages.at(-1);
+    assert.ok(saved.presentation.cards.some((card: { kind: string }) => card.kind === "completed"));
+    assert.ok(saved.presentation.cards.some((card: { kind: string }) => card.kind === "created"));
+    assert.ok(saved.presentation.note?.length);
+    assert.ok(saved.content.includes(saved.presentation.note));
+  },
+);
 
 async function startTestApp(
   t: TestContext,

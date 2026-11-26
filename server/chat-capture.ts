@@ -6,9 +6,8 @@ import type { TaskStore } from "./task-store.ts";
 type Reply = QuestionResult & { preview?: BulkPreview };
 type Options = {
   interactive?: boolean;
-  keepReply?: boolean;
   interrupted?: boolean;
-  keepNote?: boolean;
+  message?: string;
 };
 
 export class ChatCapture {
@@ -39,8 +38,11 @@ export class ChatCapture {
     });
     if (tasks.length) cards.push({ kind: "created", tasks });
     cards.push(...this.cards, ...(result.presentation?.cards ?? []));
+    const note = options.interrupted
+      ? result.reply
+      : (options.message ?? result.presentation?.note);
+    if (options.message) reply.reply = [reply.reply, options.message].filter(Boolean).join("\n");
     if (!cards.length) return reply;
-    const note = options.interrupted || options.keepNote ? result.reply : result.presentation?.note;
     return { ...reply, presentation: { cards, ...(note && { note }) } };
   }
 
@@ -72,7 +74,7 @@ export class ChatCapture {
       ].filter(Boolean);
       const summary = `已添加 ${createdTasks.length} 项任务。${counts.join("，")}。`;
       const reply =
-        options.interrupted || options.keepReply || result.question || result.preview
+        options.interrupted || result.question || result.preview
           ? summary + "\n" + result.reply
           : summary;
       return { ...result, reply, createdTasks };
@@ -88,7 +90,7 @@ export class ChatCapture {
           : `已把「${title}」加入${list}。什么时候需要完成？`;
         return {
           ...result,
-          reply: options.keepReply ? result.reply + "\n" + reply : reply,
+          reply,
           question,
         };
       }

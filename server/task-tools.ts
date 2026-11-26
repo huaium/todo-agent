@@ -119,6 +119,7 @@ export function taskTools(
     return result;
   }
   const sorting = ui?.context.sorting;
+  let answeredPrevious = false;
   return [
     ...(ui && sorting
       ? [
@@ -198,7 +199,9 @@ export function taskTools(
             "用用户本轮的自然语言回答上轮问题。若用户按清单或日期指明了哪一条，传入 {answer:{kind:'choose',taskId:匹配的候选ID}}，将执行已记录的操作。截止日期和可选时间用 deadline；跳过用 dismiss。",
             z.strictObject({ answer: questionAnswer }),
             async ({ answer }) => {
+              if (answeredPrevious) return { error: "本轮已处理该问题，请继续处理其余请求。" };
               const result = await resolveQuestion(store, port, interaction.previous!, answer);
+              answeredPrevious = true;
               interaction.respond(result);
               return result;
             },
@@ -516,12 +519,6 @@ export function taskTools(
           : `${heading}：无。`;
         return { reply };
       },
-    ),
-    taskTool(
-      "replyWithoutChanges",
-      "用于问候、澄清、解释、分析查询结果或报告失败。此工具不修改任务，不能用于确认写入成功。",
-      z.strictObject({ message: z.string().trim().min(1) }),
-      async ({ message }) => ({ reply: message }),
     ),
   ];
 }

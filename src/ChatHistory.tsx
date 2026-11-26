@@ -17,8 +17,8 @@ function AssistantReply({
   message: ChatMessage;
   current: boolean;
 }) {
-  const q = current ? message.question : undefined;
-  const controls = q && (
+  const q = message.question;
+  const controls = current && q && (
     <QuestionControls
       key={q.id}
       question={q}
