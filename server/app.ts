@@ -18,6 +18,7 @@ import { bulkPreviews, plannerRouter } from "./planner.ts";
 import { PlannerError, TaskEditConflict } from "./task-details.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
 import { ChatCapture } from "./chat-capture.ts";
+import { cardTask } from "./chat-card.ts";
 import { chatWriteReview } from "./task-request.ts";
 import { ZodError } from "zod";
 import type { BulkPreview } from "../shared/chat.ts";
@@ -92,8 +93,9 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
         preview,
         question: preview ? undefined : interactionResult?.question,
         sortChange,
+        presentation: interactionResult?.presentation,
       },
-      { interactive, keepReply: answer.keepReply },
+      { interactive, keepReply: answer.keepReply, keepNote: answer.keepNote },
     );
   }
 
@@ -185,17 +187,30 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       chat.appendReply(command.revision, false, "已取消改期。");
       return res.json(chat.read());
     }
+    let previous;
     try {
-      bulk.confirm(preview.token);
+      previous = bulk.confirm(preview.token);
     } catch (error) {
       if (error instanceof PlannerError) chat.appendReply(command.revision, false, error.message);
       throw error;
     }
-    chat.appendReply(
-      command.revision,
-      false,
-      `已将 ${preview.titles.length} 条任务改到 ${preview.date}。`,
-    );
+    chat.appendReply(command.revision, false, {
+      reply: `已将 ${preview.titles.length} 条任务改到 ${preview.date}。`,
+      presentation: {
+        cards: [
+          {
+            kind: "updated",
+            heading: `已将 ${previous.length} 项任务改期`,
+            tasks: previous.map((t) => ({
+              ...cardTask(tasks, { ...t, dueDate: preview.date }),
+              ...(t.dueDate !== preview.date && {
+                previousDeadline: [t.dueDate, t.dueTime].filter(Boolean).join(" ") || "未设日期",
+              }),
+            })),
+          },
+        ],
+      },
+    });
     return res.json(chat.read());
   });
 

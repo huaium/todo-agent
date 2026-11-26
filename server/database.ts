@@ -99,6 +99,7 @@ export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
     ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
     ...(typeof r.sort_change === "string" && { sortChange: JSON.parse(r.sort_change) }),
     ...(typeof r.created_tasks === "string" && { createdTasks: JSON.parse(r.created_tasks) }),
+    ...(typeof r.presentation === "string" && { presentation: JSON.parse(r.presentation) }),
   }));
 }
 export function readConversation(db: DatabaseSync): Conversation {
@@ -106,13 +107,14 @@ export function readConversation(db: DatabaseSync): Conversation {
 }
 export function insertMessage(db: DatabaseSync, message: ChatMessage) {
   db.prepare(
-    "INSERT INTO messages(role,content,question,sort_change,created_tasks) VALUES(?,?,?,?,?)",
+    "INSERT INTO messages(role,content,question,sort_change,created_tasks,presentation) VALUES(?,?,?,?,?,?)",
   ).run(
     message.role,
     message.content,
     JSON.stringify(message.question) ?? null,
     JSON.stringify(message.sortChange) ?? null,
     JSON.stringify(message.createdTasks) ?? null,
+    JSON.stringify(message.presentation) ?? null,
   );
 }
 
@@ -122,6 +124,8 @@ const approvalColumns = `
 `;
 const createdTasksColumn =
   "ALTER TABLE messages ADD COLUMN created_tasks TEXT CHECK(created_tasks IS NULL OR json_valid(created_tasks))";
+const cardColumn =
+  "ALTER TABLE messages ADD COLUMN presentation TEXT CHECK(presentation IS NULL OR json_valid(presentation)); PRAGMA user_version=8";
 const schema = `
   CREATE TABLE settings(id INTEGER PRIMARY KEY CHECK(id=1), time_zone TEXT) STRICT;
   CREATE TABLE lists(position INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
@@ -150,7 +154,7 @@ function createDatabase(directory: string, filename: string) {
         db.exec("INSERT INTO conversation(id,revision,pending) VALUES(1,0,0)");
         db.exec("PRAGMA application_id=1414480975");
         trackPlannerChanges(db);
-        db.exec("PRAGMA user_version=7");
+        db.exec(cardColumn);
       });
     } finally {
       db.close();
@@ -179,12 +183,13 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
         version !== 4 &&
         version !== 5 &&
         version !== 6 &&
-        version !== 7)
+        version !== 7 &&
+        version !== 8)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 7 && !readOnly)
+    if (version !== 8 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -205,6 +210,7 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
           db.exec(createdTasksColumn);
           db.exec("PRAGMA user_version=7");
         }
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 7) db.exec(cardColumn);
       });
     return db;
   } catch (error) {

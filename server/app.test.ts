@@ -39,10 +39,13 @@ test("canceling the second approval names the first saved task", async (t) => {
     store.list().map((task) => task.title),
     ["买茶"],
   );
-  assert.deepEqual(chat.read().messages.at(-1), {
-    role: "assistant",
-    content: "已添加「买茶」。\n已取消待审批的更改。",
-  });
+  const receipt = chat.read().messages.at(-1)!;
+  assert.equal(receipt.content, "已添加「买茶」。\n已取消待审批的更改。");
+  assert.equal(receipt.presentation?.note, "已取消待审批的更改。");
+  assert.deepEqual(
+    receipt.presentation.cards[0].tasks.map((item) => item.title),
+    ["买茶"],
+  );
 });
 
 test("批量回执只包含本轮保存的任务，保留日期精度和单条任务的追问偏好", async (t) => {
@@ -71,6 +74,8 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
   assert.equal(store.list().find((task) => task.title === "定时")!.priority, "高");
   const result = finish();
   assert.equal(result.question, undefined);
+  assert.equal(result.presentation?.cards.length, 1);
+  assert.deepEqual(result.presentation.cards[0].tasks[2].details, ["优先级 · 高"]);
   assert.equal(result.reply, "已添加 3 项任务。1 项有具体时间，1 项仅设日期，1 项未设日期。");
   assert.deepEqual(
     result.createdTasks?.map((t) => [t.title, t.dueDate, t.dueTime]),
@@ -95,6 +100,38 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
       ?.kind,
     "deadline",
   );
+});
+
+test("only displayed searches and successful edits generate immutable chat cards", async (t) => {
+  const { store, port, chat, directory } = await startTestApp(t);
+  const task = store.create("收货", { dueDate: "2030-01-01", reminder: "2029-12-31T12:00" });
+  const capture = new ChatCapture("查询并改期");
+  const tools = taskTools(port, store, undefined, undefined, undefined, undefined, capture);
+  const run = (name: string, args: object) =>
+    tools.find((tool) => tool.name === name)!.execute("call", args);
+  const finish = () => capture.finish(store, { reply: "已处理" });
+  await run("listTasks", { query: "收货" });
+  await run("setTaskDetails", { id: "missing", changes: { dueDate: "2030-01-02" } });
+  assert.equal(finish().presentation, undefined);
+  await run("listTasks", { display: true });
+  await run("setTaskDetails", {
+    id: task.id,
+    changes: { dueDate: "2030-01-02", reminder: "2030-01-01T10:00" },
+  });
+  await run("updateTask", { id: task.id, changes: { done: true } });
+  await run("deleteTask", { id: task.id });
+  chat.appendReply(0, false, finish());
+  const reopened = openDatabase(directory);
+  t.after(() => reopened.close());
+  const cards = openConversation(reopened).read().messages[0].presentation!.cards;
+  assert.deepEqual(
+    cards.map((c) => c.kind),
+    ["query", "updated", "completed", "deleted"],
+  );
+  assert.equal(cards[0].tasks[0].dueDate, "2030-01-01");
+  assert.equal(cards[1].tasks[0].previousDeadline, "2030-01-01");
+  assert.equal(cards[1].tasks[0].dueDate, "2030-01-02");
+  assert.deepEqual(cards[1].tasks[0].details, ["提醒 · 2030-01-01 10:00"]);
 });
 
 async function startTestApp(

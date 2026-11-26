@@ -75,12 +75,30 @@ const createdTaskSchema = candidateSchema.pick({
 });
 export type CreatedTask = z.infer<typeof createdTaskSchema>;
 
+const cardTask = createdTaskSchema.extend({
+  list: z.string(),
+  done: z.boolean(),
+  details: z.array(z.string()).optional(),
+  previousDeadline: z.string().optional(),
+});
+export type CardTask = z.infer<typeof cardTask>;
+const taskCard = z.object({
+  kind: z.enum(["created", "updated", "completed", "deleted", "query"]),
+  tasks: z.array(cardTask).min(1),
+  heading: z.string().optional(),
+  more: z.boolean().optional(),
+});
+export type TaskCard = z.infer<typeof taskCard>;
+const presentation = z.object({ cards: z.array(taskCard).min(1), note: z.string().optional() });
+export type TaskPresentation = z.infer<typeof presentation>;
+
 const messageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string().trim().min(1),
   question: questionSchema.optional(),
   sortChange: sortChange.optional(),
   createdTasks: z.array(createdTaskSchema).min(2).optional(),
+  presentation: presentation.optional(),
 });
 
 export type ChatMessage = z.infer<typeof messageSchema>;

@@ -1,11 +1,20 @@
-import type { BulkPreview, CreatedTask } from "../shared/chat.ts";
+import type { BulkPreview, CreatedTask, TaskCard } from "../shared/chat.ts";
+import { cardTask } from "./chat-card.ts";
 import { deadlineQuestion, type QuestionResult } from "./chat-questions.ts";
 import type { TaskStore } from "./task-store.ts";
 
 type Reply = QuestionResult & { preview?: BulkPreview };
+type Options = {
+  interactive?: boolean;
+  keepReply?: boolean;
+  interrupted?: boolean;
+  keepNote?: boolean;
+};
 
 export class ChatCapture {
   private readonly created = new Map<string, boolean>();
+  private readonly fields = new Map<string, object>();
+  private readonly cards: TaskCard[] = [];
   private readonly source: string;
   constructor(source: string) {
     this.source = source;
@@ -13,15 +22,29 @@ export class ChatCapture {
   hasSourceQuote(quote?: string) {
     return !!quote?.trim() && this.source.includes(quote.trim());
   }
-  record(id: string, deadlineOptOutQuote?: string) {
+  record(id: string, deadlineOptOutQuote?: string, fields: object = {}) {
     this.created.set(id, this.hasSourceQuote(deadlineOptOutQuote));
+    this.fields.set(id, fields);
+  }
+  add(card: TaskCard) {
+    this.cards.push(card);
   }
 
-  finish(
-    store: TaskStore,
-    result: Reply,
-    options: { interactive?: boolean; keepReply?: boolean; interrupted?: boolean } = {},
-  ): Reply {
+  finish(store: TaskStore, result: Reply, options: Options = {}): Reply {
+    const reply = this.receipt(store, result, options);
+    const cards: TaskCard[] = [];
+    const tasks = Array.from(this.created.keys()).flatMap((id) => {
+      const [task] = store.search({ id }, 0, 1);
+      return task ? [cardTask(store, task, this.fields.get(id))] : [];
+    });
+    if (tasks.length) cards.push({ kind: "created", tasks });
+    cards.push(...this.cards, ...(result.presentation?.cards ?? []));
+    if (!cards.length) return reply;
+    const note = options.interrupted || options.keepNote ? result.reply : result.presentation?.note;
+    return { ...reply, presentation: { cards, ...(note && { note }) } };
+  }
+
+  private receipt(store: TaskStore, result: Reply, options: Options): Reply {
     if (options.interrupted || this.created.size >= 2) {
       const createdTasks: CreatedTask[] = [];
       for (const id of this.created.keys()) {

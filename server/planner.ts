@@ -45,9 +45,11 @@ export function bulkPreviews(store: TaskStore) {
     confirm(token: string) {
       const p = pending.get(token);
       pending.delete(token);
-      if (!p || p.expires < Date.now() || JSON.stringify(records(p.ids)) !== p.snapshot)
-        throw new PlannerError("预览已失效，请重新预览。");
+      if (!p || p.expires < Date.now()) throw new PlannerError("预览已失效，请重新预览。");
+      const before = records(p.ids);
+      if (JSON.stringify(before) !== p.snapshot) throw new PlannerError("预览已失效，请重新预览。");
       store.reschedule(p.ids, p.date);
+      return before;
     },
   };
 }

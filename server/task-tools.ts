@@ -24,6 +24,7 @@ import {
 } from "./chat-questions.ts";
 import { chatWriteReview, requestTask } from "./task-request.ts";
 import type { ChatCapture } from "./chat-capture.ts";
+import { cardTask, changedCard } from "./chat-card.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
@@ -108,6 +109,15 @@ export function taskTools(
     return { error: updated.reply };
   }
   const id = z.string().min(1).describe("从任务清单读取的任务 ID");
+  async function changeTask(id: string, changes?: object, scope?: string, resource = "tasks") {
+    const [task] = capture ? store.search({ id }, 0, 1) : [];
+    const before = task && cardTask(store, task);
+    const body = resource === "tasks" ? changes : { changes, scope };
+    const result = await request(changes ? "PATCH" : "DELETE", id, body, resource);
+    if (before && (result.id || result.deleted))
+      capture!.add(changedCard(store, before, result.deleted ? undefined : result, changes ?? {}));
+    return result;
+  }
   const sorting = ui?.context.sorting;
   return [
     ...(ui && sorting
@@ -257,6 +267,13 @@ export function taskTools(
         const matches = page.slice(0, pageSize).map(summary);
         const more = page.length > pageSize;
         if (!display) return more ? { tasks: matches, nextOffset: offset + pageSize } : matches;
+        if (matches.length)
+          capture?.add({
+            kind: "query",
+            heading: "查询结果",
+            tasks: page.slice(0, pageSize).map((t) => cardTask(store, t)),
+            more,
+          });
         return {
           reply: matches.length
             ? matches
@@ -323,7 +340,7 @@ export function taskTools(
         const task = details
           ? await request("POST", undefined, { title, ...details }, "planner/tasks")
           : await request("POST", undefined, { title });
-        if (task.id) capture?.record(task.id, deadlineOptOutQuote);
+        if (task.id) capture?.record(task.id, deadlineOptOutQuote, details);
         return task;
       },
       true,
@@ -396,21 +413,21 @@ export function taskTools(
       "updateTask",
       "修改指定任务的标题或完成状态",
       z.strictObject({ id, changes: updateTaskSchema }),
-      ({ id, changes }) => request("PATCH", id, changes),
+      ({ id, changes }) => changeTask(id, changes),
       true,
     ),
     taskTool(
       "deleteTask",
       "把用户指定的单条任务移入回收站，可在 30 天内恢复。",
       z.strictObject({ id }),
-      ({ id }) => request("DELETE", id),
+      ({ id }) => changeTask(id),
       true,
     ),
     taskTool(
       "setTaskDetails",
       "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。修改或取消已有重复规则须传 scope=future，取消时传 repeat=null。批量改期使用 previewReschedule。",
       z.strictObject({ id, changes: detailsSchema, scope: z.enum(["one", "future"]).optional() }),
-      ({ id, changes, scope }) => request("PATCH", id, { changes, scope }, "planner/tasks"),
+      ({ id, changes, scope }) => changeTask(id, changes, scope, "planner/tasks"),
       true,
     ),
     taskTool(
@@ -457,6 +474,13 @@ export function taskTools(
         const rows = page.slice(0, pageSize);
         const scope = done === null ? "" : done ? "已完成" : "未完成";
         const heading = `${date} 到期的${scope}任务`;
+        if (rows.length)
+          capture?.add({
+            kind: "query",
+            heading,
+            tasks: rows.map((t) => cardTask(store, t)),
+            more: page.length > pageSize,
+          });
         const reply = rows.length
           ? [
               heading + "：",

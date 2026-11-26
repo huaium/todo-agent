@@ -95,7 +95,7 @@ export async function reply(
     question?: ChatQuestion;
   },
   signal?: AbortSignal,
-): Promise<{ reply: string; keepReply?: boolean }> {
+): Promise<{ reply: string; keepReply?: boolean; keepNote?: boolean }> {
   if (!process.env.DEEPSEEK_API_KEY)
     return { reply: "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。" };
   const today = localMinute(
@@ -106,6 +106,7 @@ export async function reply(
   const changes: string[] = [];
   let answer = "";
   let keepReply = false;
+  let keepNote = false;
   let turns = 0;
   const agent = new Agent({
     initialState: {
@@ -126,6 +127,12 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
     finishTurn({ message, toolResults }) {
       turns++;
       for (const result of toolResults) {
+        if (
+          result.isError ||
+          (writes.has(result.toolName) &&
+            !["createTask", "updateTask", "deleteTask", "setTaskDetails"].includes(result.toolName))
+        )
+          keepNote = true;
         if (result.isError || (writes.has(result.toolName) && result.toolName !== "createTask"))
           keepReply = true;
         if (result.isError) continue;
@@ -154,10 +161,10 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
   } finally {
     signal?.removeEventListener("abort", abort);
   }
-  if (answer) return { reply: answer, keepReply };
+  if (answer) return { reply: answer, keepReply, keepNote };
   if (!changes.length && agent.state.errorMessage) throw new Error(agent.state.errorMessage);
   const fallback = changes.length
     ? `本轮未能生成完整回复。已保存的操作结果：\n${changes.join("\n")}`
     : "本轮未能完成，请再描述一下需要处理的任务。";
-  return { reply: fallback, keepReply: true };
+  return { reply: fallback, keepReply: true, keepNote: true };
 }

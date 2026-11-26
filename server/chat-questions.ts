@@ -5,12 +5,14 @@ import type {
   CreatedTask,
   QuestionAnswer,
   SortChange,
+  TaskPresentation,
 } from "../shared/chat.ts";
 import { inbox, localMinute, offsetDate, type Planner } from "../shared/planner.ts";
 import { PlannerError } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
 import { requestTask } from "./task-request.ts";
 import { choiceDescription } from "../shared/task-choice.ts";
+import { cardTask, changedCard } from "./chat-card.ts";
 
 export function candidate(planner: Planner, id: string) {
   const task = planner.tasks.find((t) => t.id === id);
@@ -77,6 +79,7 @@ export function answerLabel(q: ChatQuestion, a: QuestionAnswer) {
 
 export interface QuestionResult {
   reply: string;
+  presentation?: TaskPresentation;
   createdTasks?: CreatedTask[];
   question?: ChatQuestion;
   sortChange?: SortChange;
@@ -115,6 +118,11 @@ export async function resolveQuestion(
     q.kind === "deadline" ? q.task : q.tasks.find((t) => a.kind === "choose" && t.id === a.taskId)!;
   let result;
   let reply;
+  const before = cardTask(
+    store,
+    planner.tasks.find((t) => t.id === task.id)!,
+  );
+  let displayFields: object = {};
   if (q.kind === "choice" && q.operation.kind === "delete") {
     result = await requestTask(port, "DELETE", task.id, undefined, "tasks", task.version);
     reply = `已删除「${task.title}」（${task.list}）。`;
@@ -131,6 +139,7 @@ export async function resolveQuestion(
             }
           : undefined;
     if (!changes) throw new PlannerError("答案与问题不匹配。");
+    displayFields = q.kind === "deadline" ? {} : changes;
     const scope =
       q.kind === "choice" && q.operation.kind === "update" ? q.operation.scope : undefined;
     result = await requestTask(
@@ -151,5 +160,10 @@ export async function resolveQuestion(
   if (result.stale || (result.error && !candidate(store.snapshot(), task.id)))
     return refreshQuestion(store, q);
   if (result.error) throw new PlannerError(result.error);
-  return { reply };
+  return {
+    reply,
+    presentation: {
+      cards: [changedCard(store, before, result.deleted ? undefined : result, displayFields)],
+    },
+  };
 }
