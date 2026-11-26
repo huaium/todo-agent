@@ -5,7 +5,6 @@ import type { Action } from "./planner-client.ts";
 import { TaskFeedback, type TaskNotice } from "./TaskFeedback.tsx";
 import { ReorderTasks, type RowControls } from "./ReorderTasks.tsx";
 import type { SortChoice } from "./task-sort.ts";
-import { KeyHint, TaskKeyHints } from "./KeyboardHints.tsx";
 interface Props {
   items: PlannerTask[];
   tasks: PlannerTask[];
@@ -106,27 +105,7 @@ export function TaskList({
             </Checkbox.Content>
           </Checkbox>
           <div className="row-text">
-            <Button
-              variant="ghost"
-              className="title-button"
-              data-row-primary
-              aria-keyshortcuts="ArrowUp ArrowDown Home End X"
-              onPress={() => open(task.id)}
-              onKeyDown={(event) => {
-                if (
-                  event.key.toLowerCase() !== "x" ||
-                  event.ctrlKey ||
-                  event.altKey ||
-                  event.metaKey ||
-                  event.shiftKey ||
-                  event.nativeEvent.isComposing ||
-                  event.nativeEvent.keyCode === 229
-                )
-                  return;
-                event.preventDefault();
-                if (!event.repeat) void toggleDone(task);
-              }}
-            >
+            <Button variant="ghost" className="title-button" onPress={() => open(task.id)}>
               {task.title}
             </Button>
             {(meta.length > 0 || children.length > 0) && (
@@ -225,24 +204,9 @@ export function TaskList({
         const ids = new Set(rows.map((t) => t.id));
         return (
           <section className="task-section" data-overdue={key === "已逾期" || undefined} key={key}>
-            <div className="task-caption">
-              <h2>
-                {key} <small>{rows.length}</small>
-              </h2>
-              <TaskKeyHints />
-              {manual && (
-                <>
-                  <div className="reorder-start-hint">
-                    <KeyHint keys="空格">抓取任务</KeyHint>
-                  </div>
-                  <div className="reorder-active-hint">
-                    <KeyHint keys="↑ ↓">移动</KeyHint>
-                    <KeyHint keys="空格">放下</KeyHint>
-                    <KeyHint keys="Esc">取消</KeyHint>
-                  </div>
-                </>
-              )}
-            </div>
+            <h2>
+              {key} <small>{rows.length}</small>
+            </h2>
             <ReorderTasks
               key={view}
               rows={rows.filter((t) => !t.parentId || !ids.has(t.parentId))}

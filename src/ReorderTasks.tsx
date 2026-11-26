@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { MotionConfig, Reorder, useDragControls } from "motion/react";
 import type { PlannerTask } from "../shared/planner.ts";
 
@@ -21,7 +21,6 @@ const sameOrder = (a: string[], b: string[]) =>
 
 function SortableRow({
   task,
-  help,
   render,
   moveUp,
   moveDown,
@@ -33,7 +32,6 @@ function SortableRow({
   order,
 }: {
   task: PlannerTask;
-  help: string;
   render: RenderRow;
   moveUp?: () => void;
   moveDown?: () => void;
@@ -45,7 +43,6 @@ function SortableRow({
   order: string;
 }) {
   const controls = useDragControls();
-  const grabbed = useRef(false);
   return (
     <Reorder.Item
       value={task.id}
@@ -54,33 +51,12 @@ function SortableRow({
       className="sortable-row"
       data-moving={active || undefined}
       aria-label={task.title}
-      aria-describedby={help}
+      tabIndex={undefined}
       dragListener={false}
       dragControls={controls}
       dragMomentum={false}
       onDragStart={begin}
       onDragEnd={(event) => (event.type === "pointercancel" ? cancel() : finish())}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget) return;
-        if (busy) {
-          if (event.key !== "Tab") event.preventDefault();
-          return;
-        }
-        if (event.key === " " && !event.repeat) {
-          if (grabbed.current) finish();
-          else begin();
-          grabbed.current = !grabbed.current;
-        } else if (event.key === "Escape" && grabbed.current) {
-          grabbed.current = false;
-          cancel();
-        }
-      }}
-      onBlur={() => {
-        if (grabbed.current) {
-          grabbed.current = false;
-          finish();
-        }
-      }}
     >
       {render(task, {
         moveUp,
@@ -110,7 +86,6 @@ function SortableRow({
 }
 
 export function ReorderTasks({ rows, manual, className, render, save }: Props) {
-  const help = useId();
   const move = useRef<Move | null>(null);
   const [draft, setDraft] = useState<Move | null>(null);
   const ids = rows.map((t) => t.id);
@@ -162,15 +137,11 @@ export function ReorderTasks({ rows, manual, className, render, save }: Props) {
   const order = draft?.ordered.join("/") ?? "";
   return (
     <MotionConfig reducedMotion="user">
-      <span id={help} className="sr-only">
-        空格抓取或放下任务，上下方向键移动，Esc 取消。
-      </span>
       <Reorder.Group axis="y" className={className} values={values} onReorder={preview}>
         {values.map((id, i) => (
           <SortableRow
             key={id}
             task={byId.get(id)!}
-            help={help}
             order={order}
             render={render}
             moveUp={!draft && i > 0 ? () => step(i, -1) : undefined}
