@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Dropdown, Input } from "@heroui/react";
+import { Button, Dropdown, Input, Label, Modal, TextField } from "@heroui/react";
 import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
 import { priorities } from "../shared/task.ts";
@@ -256,19 +256,80 @@ export default function App() {
         </div>
         <div className="rail-heading">
           我的清单
-          <Button
-            variant="ghost"
-            size="sm"
-            isIconOnly
-            aria-label="新建清单"
-            onPress={() => {
-              setListEdit("new");
-              setListError("");
-              setListName("");
+          <Modal
+            isOpen={listEdit === "new"}
+            onOpenChange={(open) => {
+              if (savingList) return;
+              setListEdit(open ? "new" : null);
+              if (open) {
+                setListError("");
+                setListName("");
+              }
             }}
           >
-            ＋
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              aria-label="新建清单"
+              isDisabled={savingList}
+            >
+              ＋
+            </Button>
+            <Modal.Backdrop isDismissable={!savingList} isKeyboardDismissDisabled={savingList}>
+              <Modal.Container size="sm" placement="center">
+                <Modal.Dialog>
+                  <Modal.Header>
+                    <Modal.Heading>新建清单</Modal.Heading>
+                  </Modal.Header>
+                  <Modal.Body>
+                    <form id="create-list" onSubmit={saveList}>
+                      <TextField
+                        value={listName}
+                        onChange={(value) => {
+                          setListName(value);
+                          setListError("");
+                        }}
+                        isReadOnly={savingList}
+                      >
+                        <Label>清单名称</Label>
+                        <Input
+                          autoFocus
+                          maxLength={80}
+                          placeholder="输入清单名称"
+                          onKeyDown={(e) => {
+                            if (
+                              e.key === "Enter" &&
+                              (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229)
+                            )
+                              e.preventDefault();
+                          }}
+                        />
+                      </TextField>
+                      {listError && <p role="alert">{listError}</p>}
+                    </form>
+                  </Modal.Body>
+                  <Modal.Footer>
+                    <Button
+                      variant="tertiary"
+                      isDisabled={savingList}
+                      onPress={() => setListEdit(null)}
+                    >
+                      取消
+                    </Button>
+                    <Button
+                      type="submit"
+                      form="create-list"
+                      isDisabled={!listName.trim() || savingList}
+                      isPending={savingList}
+                    >
+                      创建清单
+                    </Button>
+                  </Modal.Footer>
+                </Modal.Dialog>
+              </Modal.Container>
+            </Modal.Backdrop>
+          </Modal>
         </div>
         <div className="nav-views">
           {data.lists.map((l) => (
@@ -286,7 +347,7 @@ export default function App() {
             </Button>
           ))}
         </div>
-        {listEdit !== null && (
+        {listEdit !== null && listEdit !== "new" && (
           <form className="list-editor" onSubmit={saveList}>
             <Input
               aria-label="清单名称"
