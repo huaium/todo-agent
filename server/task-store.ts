@@ -27,6 +27,7 @@ export interface TaskStore {
   deleteBinItem(id: string, deletedAt: number): boolean;
   purgeExpired(): void;
   reorder(previous: string[], ordered: string[]): boolean;
+  moveRelative(id: string, anchorId: string, side: "before" | "after"): PlannerTask;
   editList(id: string | null, name: string | null): string;
   reschedule(ids: string[], dueDate: string): void;
   remind(id: string, expected: string, action: "claim" | "snooze"): boolean;
@@ -194,6 +195,22 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
     save(t);
     return t;
   }
+  function writeOrder(previous: string[], ordered: string[]) {
+    const slots = db
+      .prepare(
+        "SELECT id, position FROM tasks WHERE id IN (SELECT value FROM json_each(?)) ORDER BY position",
+      )
+      .all(JSON.stringify(previous));
+    if (slots.length !== previous.length || slots.some((row, i) => row.id !== previous[i]))
+      return false;
+    const assign = db.prepare("UPDATE tasks SET position=? WHERE id=?");
+    // Vacate the changed slots before assigning their final positions.
+    for (const [i, row] of slots.entries())
+      if (previous[i] !== ordered[i]) assign.run(-Number(row.position), previous[i]);
+    for (const [i, row] of slots.entries())
+      if (previous[i] !== ordered[i]) assign.run(row.position, ordered[i]);
+    return true;
+  }
   return {
     list: () => readTasks(db),
     snapshot: () => readPlanner(db),
@@ -326,21 +343,29 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         ordered.some((id) => !ids.has(id))
       )
         fail("排序必须包含同一组任务，且不能重复。");
+      return transaction(db, () => writeOrder(previous, ordered));
+    },
+    moveRelative(id, anchorId, side) {
       return transaction(db, () => {
-        const slots = db
-          .prepare(
-            "SELECT id, position FROM tasks WHERE id IN (SELECT value FROM json_each(?)) ORDER BY position",
-          )
-          .all(JSON.stringify(previous));
-        if (slots.length !== previous.length || slots.some((row, i) => row.id !== previous[i]))
-          return false;
-        const assign = db.prepare("UPDATE tasks SET position=? WHERE id=?");
-        // Vacate only the affected primary keys before assigning their final positions.
-        for (const [i, row] of slots.entries())
-          if (previous[i] !== ordered[i]) assign.run(-Number(row.position), previous[i]);
-        for (const [i, row] of slots.entries())
-          if (previous[i] !== ordered[i]) assign.run(row.position, ordered[i]);
-        return true;
+        if (id === anchorId) fail("请选择两条不同的任务。");
+        const task = get(id),
+          anchor = get(anchorId);
+        if (!task || !anchor) return fail("移动的任务或参照任务已不存在。");
+        if (!anchor.parentId && task.done !== anchor.done)
+          fail("两条任务分属待办和已完成，无法在这两个分组之间手动排序。");
+        if ((task.parentId ?? null) !== (anchor.parentId ?? null)) {
+          if ((task.listId ?? inbox) !== (anchor.listId ?? inbox))
+            fail("调整层级涉及跨清单移动，请先指定目标清单。");
+          change(task, { parentId: anchor.parentId ?? null }, "one");
+        }
+        const previous = db
+          .prepare("SELECT id FROM tasks ORDER BY position")
+          .all()
+          .map((row) => String(row.id));
+        const ordered = previous.filter((key) => key !== id);
+        ordered.splice(ordered.indexOf(anchorId) + Number(side === "after"), 0, id);
+        if (!writeOrder(previous, ordered)) fail("任务顺序已变化。");
+        return task;
       });
     },
     reschedule(ids, date) {

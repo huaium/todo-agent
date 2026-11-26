@@ -28,6 +28,18 @@ function describe(write: TaskWrite, planner: Planner): Omit<ChatApproval, "token
   const task = planner.tasks.find((t) => t.id === write.id);
   const listName = (id: unknown) =>
     planner.lists.find((l) => l.id === (id ?? inbox))?.name ?? String(id);
+  if (write.resource === "planner/tasks/order") {
+    const source = planner.tasks.find((t) => t.id === body.id);
+    const anchor = planner.tasks.find((t) => t.id === body.anchorId);
+    const parent = planner.tasks.find((t) => t.id === anchor?.parentId);
+    return {
+      title: `将「${source?.title ?? body.id}」移到「${anchor?.title ?? body.anchorId}」${body.side === "before" ? "上方" : "下方"}`,
+      details:
+        (source?.parentId ?? null) === (anchor?.parentId ?? null)
+          ? []
+          : [parent ? `移为「${parent.title}」的子任务` : "移为独立任务"],
+    };
+  }
   if (write.resource === "planner/lists") {
     const name = write.id ? listName(write.id) : String(body.name);
     if (write.method === "POST") return { title: `创建清单「${name}」`, details: [] };
@@ -62,6 +74,13 @@ function describe(write: TaskWrite, planner: Planner): Omit<ChatApproval, "token
 type Result = QuestionResult & { preview?: BulkPreview };
 
 function approvalContext(write: TaskWrite, planner: Planner) {
+  if (write.resource === "planner/tasks/order") {
+    const { id, anchorId } = write.body as { id: string; anchorId: string };
+    return JSON.stringify([
+      describe(write, planner),
+      planner.tasks.filter((t) => t.id === id || t.id === anchorId),
+    ]);
+  }
   // A change elsewhere in the planner should not invalidate an unrelated approval.
   const affected = planner.tasks
     .filter((task) =>

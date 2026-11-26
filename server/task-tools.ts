@@ -204,6 +204,13 @@ export function taskTools(
       true,
     ),
     taskTool(
+      "moveTaskRelative",
+      "调整任务行顺序。将 id 移到 anchorId 的正上方(before)或正下方(after)，并使其与参照任务同级。移动到父任务上方会自动提升一级；无需先修改 parentId。",
+      z.strictObject({ id, anchorId: id, side: z.enum(["before", "after"]) }),
+      (move) => requestTask(port, "POST", undefined, move, "planner/tasks/order"),
+      true,
+    ),
+    taskTool(
       "updateTask",
       "修改指定任务的标题或完成状态",
       z.strictObject({ id, changes: updateTaskSchema }),

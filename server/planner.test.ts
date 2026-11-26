@@ -30,6 +30,32 @@ test("manual ordering preserves hidden slots and rejects stale or invalid moves 
   assert.equal(store.reorder(ordered, previous), false);
   assert.deepEqual(store.list(), [c, hidden, b]);
 });
+test("relative moves promote a child, preserve its descendants, and reject cycles without changing order", async (t) => {
+  const { store } = await fixture(t);
+  const meeting = store.create("开会"),
+    eggs = store.create("买鸡蛋", { parentId: meeting.id });
+  const child = store.create("带袋子", { parentId: eggs.id });
+  const other = store.create("开会");
+  store.moveRelative(eggs.id, meeting.id, "before");
+  assert.deepEqual(
+    store.list().map((t) => t.id),
+    [eggs.id, meeting.id, child.id, other.id],
+  );
+  assert.equal(store.list()[0].parentId, null);
+  const before = store.list();
+  assert.throws(() => store.moveRelative(eggs.id, child.id, "after"));
+  assert.throws(() => store.moveRelative(eggs.id, "missing", "before"));
+  assert.deepEqual(store.list(), before);
+  store.moveRelative(meeting.id, child.id, "after");
+  assert.equal(store.list().find((t) => t.id === meeting.id)?.parentId, eggs.id);
+  assert.deepEqual(
+    store
+      .list()
+      .filter((t) => t.parentId === eggs.id)
+      .map((t) => t.id),
+    [child.id, meeting.id],
+  );
+});
 test("旧清单原子迁移，移动父任务时同步移动所有子项，删除清单保留任务", async (t) => {
   const old = { id: "legacy", done: false, title: "报告", extension: 42 };
   const { file, store } = await fixture(t, [old]);

@@ -86,6 +86,16 @@ export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPrev
     res.status(201).json(store.create(title, details));
   });
   router.post("/tasks/order", (req, res) => {
+    if (req.body?.anchorId !== undefined) {
+      const { id, anchorId, side } = z
+        .strictObject({
+          id: z.string().min(1),
+          anchorId: z.string().min(1),
+          side: z.enum(["before", "after"]),
+        })
+        .parse(req.body);
+      return res.json(store.moveRelative(id, anchorId, side));
+    }
     const ids = z.array(z.string().min(1)).min(2);
     const { previous, ordered } = z.strictObject({ previous: ids, ordered: ids }).parse(req.body);
     if (!store.reorder(previous, ordered))
