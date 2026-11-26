@@ -102,9 +102,11 @@ export default function App() {
     data.lists.find((l) => l.id === personal)?.name ??
     "收件箱";
   const selectedTask = data.tasks.find((t) => t.id === selected);
-  usePlannerKeyboard(!!selectedTask, setPane);
+  const editing = !!selectedTask;
+  usePlannerKeyboard(editing, setPane);
   const deleteTask = data.tasks.find((t) => t.id === deleteTaskId);
   const tags = [...new Set(data.tasks.flatMap((t) => t.tags ?? []))].sort();
+  const filterTags = tag && !tags.includes(tag) ? [tag, ...tags] : tags;
   function inView(t: (typeof data.tasks)[number], v: string) {
     if (v === "today") return !t.done && !!t.dueDate && t.dueDate <= today;
     if (v === "upcoming") return !t.done && !!t.dueDate && t.dueDate > today;
@@ -428,10 +430,11 @@ export default function App() {
           >
             ☰
           </Button>
-          <ShortcutField keys={selectedTask ? undefined : searchKeys}>
+          <ShortcutField keys={editing ? undefined : searchKeys}>
             <Input
               className="search"
-              aria-keyshortcuts={selectedTask ? undefined : "Control+K Meta+K"}
+              disabled={editing}
+              aria-keyshortcuts={editing ? undefined : "Control+K Meta+K"}
               type="search"
               aria-label={showBin ? "搜索回收站" : "搜索任务"}
               placeholder={showBin ? "搜索回收站" : "搜索任务、清单或标签"}
@@ -444,8 +447,9 @@ export default function App() {
               variant={filtered || filters ? "secondary" : "tertiary"}
               icon="filter"
               label={filtered ? "筛选（已应用）" : "筛选"}
-              aria-expanded={filters}
-              aria-controls="task-filters"
+              isDisabled={editing}
+              aria-expanded={!editing && filters}
+              aria-controls={editing ? undefined : "task-filters"}
               className={filtered ? "selected-filter" : ""}
               onPress={() => setFilters(!filters)}
             />
@@ -454,7 +458,7 @@ export default function App() {
             小明
           </Button>
         </div>
-        {!showBin && (
+        {!showBin && !editing && (
           <div id="task-filters" className="filter-disclosure" inert={!filters}>
             <div className="filter-clip">
               <div className="filters" role="group" aria-label="任务筛选">
@@ -473,7 +477,7 @@ export default function App() {
                   label="标签"
                   value={tag}
                   onChange={setTag}
-                  choices={[{ value: "", label: "全部标签" }, ...options(tags)]}
+                  choices={[{ value: "", label: "全部标签" }, ...options(filterTags)]}
                 />
                 <ChoiceField
                   label="优先级"
