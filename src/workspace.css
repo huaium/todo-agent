@@ -500,6 +500,16 @@
 .pane-head strong {
   white-space: nowrap;
 }
+.chat-settings .modal__body {
+  margin-block-start: 1.5rem;
+}
+.chat-settings .switch__content {
+  width: 100%;
+  justify-content: space-between;
+}
+.chat-settings .switch > [data-slot="description"] {
+  padding-inline-start: 0;
+}
 .welcome {
   padding: 32px var(--chat-inset);
 }

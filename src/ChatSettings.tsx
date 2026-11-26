@@ -60,7 +60,7 @@ export function ChatSettings({
       />
       <Modal.Backdrop isOpen={open} onOpenChange={setOpen}>
         <Modal.Container size="sm">
-          <Modal.Dialog>
+          <Modal.Dialog className="chat-settings">
             <Modal.Header>
               <Modal.Heading>聊天设置</Modal.Heading>
             </Modal.Header>
@@ -68,10 +68,10 @@ export function ChatSettings({
             <Modal.Body>
               <Switch isSelected={shiftToSend} onChange={onChange}>
                 <Switch.Content>
+                  <Label>使用 Shift + Enter 发送</Label>
                   <Switch.Control>
                     <Switch.Thumb />
                   </Switch.Control>
-                  <Label>使用 Shift + Enter 发送</Label>
                 </Switch.Content>
                 <Description>{shiftToSend ? "Enter" : "Shift + Enter"} 换行</Description>
               </Switch>
