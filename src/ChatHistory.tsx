@@ -68,6 +68,7 @@ interface ChatHistoryProps {
   children: ReactNode;
   scrollActions: boolean;
   messages: ChatMessage[];
+  activeQuestionId?: string;
   pending: boolean;
   onSelectPrompt: (prompt: string) => void;
   disabled: boolean;
@@ -79,6 +80,7 @@ export function ChatHistory({
   children,
   scrollActions,
   messages,
+  activeQuestionId,
   pending,
   onSelectPrompt,
   disabled,
@@ -86,6 +88,9 @@ export function ChatHistory({
 }: ChatHistoryProps) {
   const viewport = useRef<HTMLDivElement>(null);
   const following = useRef(true);
+  const activeIndex = activeQuestionId
+    ? messages.findLastIndex((message) => message.question?.id === activeQuestionId)
+    : -1;
   const [restoredCount, setRestoredCount] = useState(messages.length);
   if (messages.length < restoredCount) setRestoredCount(messages.length);
   useEffect(() => {
@@ -130,7 +135,7 @@ export function ChatHistory({
                 ) : (
                   <AssistantReply
                     message={message}
-                    current={index === messages.length - 1}
+                    current={index === activeIndex}
                     openTask={openTask}
                     disabled={disabled}
                     onAnswer={onAnswer}

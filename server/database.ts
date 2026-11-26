@@ -77,6 +77,13 @@ export function chatState(db: DatabaseSync): Omit<Conversation, "messages"> {
   return {
     revision: Number(r.revision),
     pending: !!r.pending,
+    ...(r.active_question_seq != null && {
+      activeQuestionId: String(
+        db
+          .prepare("SELECT json_extract(question,'$.id') AS id FROM messages WHERE seq=?")
+          .get(r.active_question_seq)!.id,
+      ),
+    }),
     ...((r.approval_mode === "cautious" || r.approval_mode === "allow") && {
       approvalMode: r.approval_mode,
     }),
@@ -106,16 +113,18 @@ export function readConversation(db: DatabaseSync): Conversation {
   return { ...chatState(db), messages: readMessages(db) };
 }
 export function insertMessage(db: DatabaseSync, message: ChatMessage) {
-  db.prepare(
-    "INSERT INTO messages(role,content,question,sort_change,created_tasks,presentation) VALUES(?,?,?,?,?,?)",
-  ).run(
-    message.role,
-    message.content,
-    JSON.stringify(message.question) ?? null,
-    JSON.stringify(message.sortChange) ?? null,
-    JSON.stringify(message.createdTasks) ?? null,
-    JSON.stringify(message.presentation) ?? null,
-  );
+  return db
+    .prepare(
+      "INSERT INTO messages(role,content,question,sort_change,created_tasks,presentation) VALUES(?,?,?,?,?,?)",
+    )
+    .run(
+      message.role,
+      message.content,
+      JSON.stringify(message.question) ?? null,
+      JSON.stringify(message.sortChange) ?? null,
+      JSON.stringify(message.createdTasks) ?? null,
+      JSON.stringify(message.presentation) ?? null,
+    );
 }
 
 const approvalColumns = `
@@ -126,6 +135,11 @@ const createdTasksColumn =
   "ALTER TABLE messages ADD COLUMN created_tasks TEXT CHECK(created_tasks IS NULL OR json_valid(created_tasks))";
 const cardColumn =
   "ALTER TABLE messages ADD COLUMN presentation TEXT CHECK(presentation IS NULL OR json_valid(presentation)); PRAGMA user_version=8";
+const activeQuestionColumn = `
+  ALTER TABLE conversation ADD COLUMN active_question_seq INTEGER;
+  UPDATE conversation SET active_question_seq=(SELECT CASE WHEN question IS NOT NULL THEN seq END FROM messages ORDER BY seq DESC LIMIT 1);
+  PRAGMA user_version=9;
+`;
 const schema = `
   CREATE TABLE settings(id INTEGER PRIMARY KEY CHECK(id=1), time_zone TEXT) STRICT;
   CREATE TABLE lists(position INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
@@ -155,6 +169,7 @@ function createDatabase(directory: string, filename: string) {
         db.exec("PRAGMA application_id=1414480975");
         trackPlannerChanges(db);
         db.exec(cardColumn);
+        db.exec(activeQuestionColumn);
       });
     } finally {
       db.close();
@@ -184,12 +199,13 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
         version !== 5 &&
         version !== 6 &&
         version !== 7 &&
-        version !== 8)
+        version !== 8 &&
+        version !== 9)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 8 && !readOnly)
+    if (version !== 9 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -211,6 +227,8 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
           db.exec("PRAGMA user_version=7");
         }
         if (db.prepare("PRAGMA user_version").get()?.user_version === 7) db.exec(cardColumn);
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 8)
+          db.exec(activeQuestionColumn);
       });
     return db;
   } catch (error) {

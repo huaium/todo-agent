@@ -233,6 +233,7 @@ export function ChatPanel({
             return error;
           }}
           messages={history}
+          activeQuestionId={sending ? undefined : state.activeQuestionId}
           pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}
           disabled={busy || voiceActive}

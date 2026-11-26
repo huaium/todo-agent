@@ -1,5 +1,11 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ApprovalMode, ChatApproval, BulkPreview, ChatMessage } from "../shared/chat.ts";
+import type {
+  ApprovalMode,
+  ChatApproval,
+  BulkPreview,
+  ChatMessage,
+  ChatQuestion,
+} from "../shared/chat.ts";
 import type { QuestionResult } from "./chat-questions.ts";
 import {
   chatState,
@@ -18,7 +24,7 @@ export class ChatConflict extends Error {
 }
 export function openConversation(db: DatabaseSync) {
   const advance = db.prepare(
-    "UPDATE conversation SET revision=revision+1,pending=?,preview=CASE WHEN ? THEN preview ELSE ? END,approval=NULL WHERE id=1 AND revision=? AND pending=?",
+    "UPDATE conversation SET revision=revision+1,pending=?,preview=CASE WHEN ? THEN preview ELSE ? END,active_question_seq=CASE WHEN ? THEN NULL ELSE active_question_seq END,approval=NULL WHERE id=1 AND revision=? AND pending=?",
   );
   function write(
     revision: number,
@@ -33,13 +39,19 @@ export function openConversation(db: DatabaseSync) {
           Number(pending),
           Number(preview === undefined),
           preview ? JSON.stringify(preview) : null,
+          Number(pending || wasPending || !message),
           revision,
           Number(wasPending),
         ).changes
       )
         throw new ChatConflict();
-      if (message) insertMessage(db, message);
-      else db.exec("DELETE FROM messages");
+      if (message) {
+        const inserted = insertMessage(db, message);
+        if (message.question)
+          db.prepare("UPDATE conversation SET active_question_seq=? WHERE id=1").run(
+            inserted.lastInsertRowid,
+          );
+      } else db.exec("DELETE FROM messages");
     });
   }
   function appendReply(
@@ -67,7 +79,14 @@ export function openConversation(db: DatabaseSync) {
   return {
     state: () => chatState(db),
     read: () => transaction(db, () => readConversation(db), "DEFERRED"),
-    lastQuestion: () => readMessages(db, 1)[0]?.question,
+    lastQuestion(): ChatQuestion | undefined {
+      const row = db
+        .prepare(
+          "SELECT question FROM messages WHERE seq=(SELECT active_question_seq FROM conversation WHERE id=1)",
+        )
+        .get();
+      return row && JSON.parse(String(row.question));
+    },
     context: () => recentContext(readMessages(db, 100)),
     begin: (revision: number, content: string) =>
       write(revision, false, true, { role: "user", content }),

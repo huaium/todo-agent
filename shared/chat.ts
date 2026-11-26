@@ -121,6 +121,7 @@ export type ChatApproval = z.infer<typeof approvalSchema>;
 export const conversationSchema = z.object({
   revision,
   messages: z.array(messageSchema),
+  activeQuestionId: z.string().optional(),
   pending: z.boolean(),
   preview: previewSchema.optional(),
   approvalMode: approvalMode.optional(),

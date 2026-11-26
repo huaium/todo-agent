@@ -26,12 +26,12 @@ import type { BulkPreview } from "../shared/chat.ts";
 interface AppDependencies {
   reply?(messages: ChatMessage[]): Promise<string>;
   tasks: TaskStore;
+  bulk?: ReturnType<typeof bulkPreviews>;
   chat: ReturnType<typeof openConversation>;
 }
 
-export function createApp({ reply, tasks, chat }: AppDependencies) {
+export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: AppDependencies) {
   const app = express();
-  const bulk = bulkPreviews(tasks);
   let reviewTurn: ApprovalTurn | undefined;
   app.use(express.json({ limit: "1mb" }));
 

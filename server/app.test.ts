@@ -180,7 +180,8 @@ async function startTestApp(
   t.after(() => db.close());
   const store = createTaskStore(db, now);
   const chat = openConversation(db);
-  const app = createApp({ tasks: store, chat, reply });
+  const bulk = bulkPreviews(store);
+  const app = createApp({ tasks: store, chat, reply, bulk });
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
@@ -199,8 +200,48 @@ async function startTestApp(
     };
   }
 
-  return { request, store, port, directory, chat, db };
+  return { request, store, port, directory, chat, db, bulk };
 }
+
+test("preview confirmations and cancellations leave an independent question answerable in either order", async (t) => {
+  const { request, store, chat, bulk } = await startTestApp(t);
+  for (const action of ["cancel", "confirm"]) {
+    for (const previewFirst of [true, false]) {
+      const target = store.create("周报");
+      const choice = store.create("报告");
+      const question = choiceQuestion(store.snapshot(), [choice.id], {
+        kind: "update",
+        changes: { done: true },
+      })!;
+      const preview = bulk.preview([target.id], "2030-03-06");
+      chat.appendReply(chat.state().revision, false, { reply: "选择任务", question, preview });
+      const apply = () =>
+        request("POST", "/api/chat", {
+          action,
+          token: preview.token,
+          revision: chat.state().revision,
+        });
+      const answer = () =>
+        request("POST", "/api/chat", {
+          action: "answer",
+          questionId: question.id,
+          answer: { kind: "choose", taskId: choice.id },
+          revision: chat.state().revision,
+        });
+      if (previewFirst) {
+        assert.equal((await apply()).body.activeQuestionId, question.id);
+        assert.equal(chat.lastQuestion()?.id, question.id);
+        assert.equal((await answer()).status, 200);
+      } else {
+        assert.equal((await answer()).body.preview.token, preview.token);
+        assert.equal((await apply()).status, 200);
+      }
+      assert.equal(store.search({ id: choice.id }, 0, 1)[0].done, true);
+      assert.equal(chat.lastQuestion(), undefined);
+      assert.equal((await answer()).status, 409);
+    }
+  }
+});
 
 test("compound edits use the selected task's committed version and reject later outside edits", async (t) => {
   const { store, port } = await startTestApp(t);
