@@ -252,6 +252,7 @@ export function ChatPanel({
           value={draft}
           readOnly={busy}
           aria-label="消息"
+          aria-keyshortcuts="F6"
           placeholder="告诉小明你想做什么…"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {

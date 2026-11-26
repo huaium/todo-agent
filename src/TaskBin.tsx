@@ -81,6 +81,8 @@ export function TaskBin({ items, planner, query, act, sort, changeSort }: Props)
                   <Button
                     size="sm"
                     variant="secondary"
+                    data-row-primary
+                    aria-keyshortcuts="ArrowUp ArrowDown Home End"
                     aria-label={"恢复" + item.title}
                     isDisabled={restoring !== null}
                     isPending={restoring === item.id}

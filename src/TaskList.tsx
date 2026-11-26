@@ -105,7 +105,27 @@ export function TaskList({
             </Checkbox.Content>
           </Checkbox>
           <div className="row-text">
-            <Button variant="ghost" className="title-button" onPress={() => open(task.id)}>
+            <Button
+              variant="ghost"
+              className="title-button"
+              data-row-primary
+              aria-keyshortcuts="ArrowUp ArrowDown Home End X"
+              onPress={() => open(task.id)}
+              onKeyDown={(event) => {
+                if (
+                  event.key.toLowerCase() !== "x" ||
+                  event.ctrlKey ||
+                  event.altKey ||
+                  event.metaKey ||
+                  event.shiftKey ||
+                  event.nativeEvent.isComposing ||
+                  event.nativeEvent.keyCode === 229
+                )
+                  return;
+                event.preventDefault();
+                if (!event.repeat) void toggleDone(task);
+              }}
+            >
               {task.title}
             </Button>
             {(meta.length > 0 || children.length > 0) && (

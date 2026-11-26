@@ -129,6 +129,17 @@
   align-items: center;
   padding-inline-start: calc(var(--spacing) * 3);
 }
+.shortcut-list > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, auto) 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding-block: 6px;
+}
+.shortcut-list kbd {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
 .rail-foot small,
 .metadata,
 .task-row time,
@@ -306,7 +317,8 @@
   position: relative;
   border-radius: var(--radius);
 }
-.sortable-row:focus-visible {
+.sortable-row:focus-visible,
+.task-row [data-row-primary]:focus-visible {
   outline: 2px solid var(--focus);
 }
 .sortable-row[data-moving] {
