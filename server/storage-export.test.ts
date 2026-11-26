@@ -34,13 +34,10 @@ test("rollback export preserves post-cutover data and refuses an existing destin
   tasks.create("米", { parentId: parent.id, notes: "留收据" });
   const chat = openConversation(db);
   chat.begin(0, "帮我记下采购");
-  chat.appendReply(
-    1,
-    true,
-    "安排在哪一天？",
-    undefined,
-    deadlineQuestion(tasks.snapshot(), parent.id),
-  );
+  chat.appendReply(1, true, {
+    reply: "安排在哪一天？",
+    question: deadlineQuestion(tasks.snapshot(), parent.id),
+  });
   const planner = readPlannerDocument(db),
     history = chat.read();
   db.close();

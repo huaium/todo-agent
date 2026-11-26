@@ -19,11 +19,11 @@ import {
   choiceQuestion,
   candidate,
   refreshQuestion,
-  deadlineQuestion,
   resolveQuestion,
   type QuestionResult,
 } from "./chat-questions.ts";
 import { chatWriteReview, requestTask } from "./task-request.ts";
+import type { ChatCapture } from "./chat-capture.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
@@ -83,6 +83,7 @@ export function taskTools(
   interaction?: { previous?: ChatQuestion; respond(result: QuestionResult): void },
   ui?: { context: ViewContext; apply(choice: z.infer<typeof chatSort>): void },
   view?: ViewContext,
+  capture?: ChatCapture,
 ): TaskTool[] {
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
     const q = interaction?.previous;
@@ -299,25 +300,28 @@ export function taskTools(
       "创建未完成任务。若已知截止日期、重复、提醒、清单或父任务，用 details 一起保存。",
       createTaskSchema.extend({
         details: detailsSchema.optional(),
+        priorityQuote: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "只在设置 priority 时填写。引用本轮用户对这项任务优先级或紧急程度的原话，单纯给出截止时间不算。",
+          ),
         skipDeadlineQuestion: z
           .boolean()
           .optional()
-          .describe("仅当用户明确不要截止日期、仅设日期或不想被询问时传 true；未提及时间时省略。"),
+          .describe(
+            "用户希望未说的日期或时间留空、不用追问或仅设日期时传 true。整条消息的要求适用于其中每个任务。",
+          ),
       }),
-      async ({ title, details, skipDeadlineQuestion }) => {
+      async ({ title, details, priorityQuote, skipDeadlineQuestion }) => {
+        if (details?.priority && capture && !capture.hasPriorityQuote(priorityQuote))
+          delete details.priority;
         const task = details
           ? await request("POST", undefined, { title, ...details }, "planner/tasks")
           : await request("POST", undefined, { title });
-        if (interaction && task.id && !skipDeadlineQuestion && !task.dueTime) {
-          const question = deadlineQuestion(store.taskContext(task.id), task.id);
-          if (question?.kind === "deadline")
-            interaction.respond({
-              question,
-              reply: question.task.dueDate
-                ? `已记下「${task.title}」，${question.task.dueDate} 到期。要设具体时间吗？`
-                : `已把「${task.title}」加入${question.task.list}。什么时候需要完成？`,
-            });
-        }
+        if (task.id) capture?.record(task.id, skipDeadlineQuestion === true);
         return task;
       },
       true,

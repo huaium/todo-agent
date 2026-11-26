@@ -26,10 +26,13 @@ test("重启后保留对话并结束中断的请求，只记录一次中断", as
   });
   recovered.recover();
   assert.equal(recovered.state().revision, 2);
-  recovered.appendReply(2, false, "待确认", {
-    token: "preview",
-    date: "2030-04-09",
-    titles: ["买茶叶"],
+  recovered.appendReply(2, false, {
+    reply: "待确认",
+    preview: {
+      token: "preview",
+      date: "2030-04-09",
+      titles: ["买茶叶"],
+    },
   });
   recovered.recover();
   const afterRestart = recovered.read();

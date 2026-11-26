@@ -1,5 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ChatQuestion, ChoiceOperation, QuestionAnswer, SortChange } from "../shared/chat.ts";
+import type {
+  ChatQuestion,
+  ChoiceOperation,
+  CreatedTask,
+  QuestionAnswer,
+  SortChange,
+} from "../shared/chat.ts";
 import { inbox, localMinute, offsetDate, type Planner } from "../shared/planner.ts";
 import { PlannerError } from "./task-details.ts";
 import type { TaskStore } from "./task-store.ts";
@@ -71,6 +77,7 @@ export function answerLabel(q: ChatQuestion, a: QuestionAnswer) {
 
 export interface QuestionResult {
   reply: string;
+  createdTasks?: CreatedTask[];
   question?: ChatQuestion;
   sortChange?: SortChange;
 }

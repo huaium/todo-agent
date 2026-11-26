@@ -17,6 +17,7 @@ import { taskTools } from "./task-tools.ts";
 import { bulkPreviews, plannerRouter } from "./planner.ts";
 import { PlannerError, TaskEditConflict } from "./task-details.ts";
 import { ApprovalTurn } from "./chat-approval.ts";
+import { ChatCapture } from "./chat-capture.ts";
 import { chatWriteReview } from "./task-request.ts";
 import { ZodError } from "zod";
 import type { BulkPreview } from "../shared/chat.ts";
@@ -41,12 +42,13 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     previous?: ChatQuestion,
     signal?: AbortSignal,
     turn?: number,
+    capture = new ChatCapture(messages.at(-1)!.content),
   ) {
     let sortChange: SortChange | undefined;
     let preview: BulkPreview | undefined;
     let interactionResult: QuestionResult | undefined;
     const answer = reply
-      ? await reply(messages)
+      ? { reply: await reply(messages), keepReply: false }
       : await agentReply(
           messages,
           taskTools(
@@ -78,16 +80,21 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
                 }
               : undefined,
             view,
+            capture,
           ),
           { view, timeZone: tasks.timeZone(), question: previous },
           signal,
         );
-    return {
-      reply: preview ? answer : (interactionResult?.reply ?? answer),
-      preview,
-      question: preview ? undefined : interactionResult?.question,
-      sortChange,
-    };
+    return capture.finish(
+      tasks,
+      {
+        reply: preview ? answer.reply : (interactionResult?.reply ?? answer.reply),
+        preview,
+        question: preview ? undefined : interactionResult?.question,
+        sortChange,
+      },
+      { interactive, keepReply: answer.keepReply },
+    );
   }
 
   app.get("/api/chat", (req, res) => {
@@ -139,13 +146,23 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
         command.action === "send" ? command.text : answerLabel(previous!, command.answer);
       chat.begin(command.revision, content);
       const pendingRevision = command.revision + 1;
+      const capture = new ChatCapture(content);
       if (current.preview) bulk.discard(current.preview.token);
       const work = (signal?: AbortSignal) =>
         command.action === "answer"
           ? resolveQuestion(tasks, port, previous!, command.answer)
-          : respond(chat.context(), port, command.context, true, previous, signal, pendingRevision);
+          : respond(
+              chat.context(),
+              port,
+              command.context,
+              true,
+              previous,
+              signal,
+              pendingRevision,
+              capture,
+            );
       if (current.approvalMode === "cautious") {
-        reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision);
+        reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision, capture);
         await reviewTurn.start(work);
         return res.json(chat.read());
       }
@@ -153,17 +170,11 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
       try {
         result = await work();
       } catch (error) {
-        chat.appendReply(pendingRevision, true, interruptedReply);
+        const partial = capture.finish(tasks, { reply: interruptedReply }, { keepReply: true });
+        chat.appendReply(pendingRevision, true, partial);
         throw error;
       }
-      chat.appendReply(
-        pendingRevision,
-        true,
-        result.reply,
-        result.preview,
-        result.question,
-        result.sortChange,
-      );
+      chat.appendReply(pendingRevision, true, result);
       return res.json(chat.read());
     }
     const preview = current.preview;

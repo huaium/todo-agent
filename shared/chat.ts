@@ -67,11 +67,20 @@ export type ChatQuestion = z.infer<typeof questionSchema>;
 export type QuestionAnswer = z.infer<typeof questionAnswer>;
 export type ChoiceOperation = z.infer<typeof choiceOperation>;
 
+const createdTaskSchema = candidateSchema.pick({
+  id: true,
+  title: true,
+  dueDate: true,
+  dueTime: true,
+});
+export type CreatedTask = z.infer<typeof createdTaskSchema>;
+
 const messageSchema = z.object({
   role: z.enum(["user", "assistant"]),
   content: z.string().trim().min(1),
   question: questionSchema.optional(),
   sortChange: sortChange.optional(),
+  createdTasks: z.array(createdTaskSchema).min(2).optional(),
 });
 
 export type ChatMessage = z.infer<typeof messageSchema>;

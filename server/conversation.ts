@@ -1,12 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import type {
-  ApprovalMode,
-  ChatApproval,
-  BulkPreview,
-  ChatMessage,
-  ChatQuestion,
-  SortChange,
-} from "../shared/chat.ts";
+import type { ApprovalMode, ChatApproval, BulkPreview, ChatMessage } from "../shared/chat.ts";
+import type { QuestionResult } from "./chat-questions.ts";
 import {
   chatState,
   insertMessage,
@@ -46,11 +40,13 @@ export function openConversation(db: DatabaseSync) {
   function appendReply(
     revision: number,
     wasPending: boolean,
-    content: string,
-    preview?: BulkPreview,
-    question?: ChatQuestion,
-    sortChange?: SortChange,
+    result: string | (QuestionResult & { preview?: BulkPreview }),
   ) {
+    const {
+      reply: content,
+      preview,
+      ...details
+    } = typeof result === "string" ? { reply: result } : result;
     write(
       revision,
       wasPending,
@@ -58,8 +54,7 @@ export function openConversation(db: DatabaseSync) {
       {
         role: "assistant",
         content,
-        ...(question && { question }),
-        ...(sortChange && { sortChange }),
+        ...details,
       },
       preview,
     );
@@ -110,14 +105,17 @@ export function openConversation(db: DatabaseSync) {
 
 // Retain the complete transcript on disk. Send a bounded suffix to the model.
 export function recentContext(messages: ChatMessage[]) {
+  const messageLength = (message: ChatMessage) =>
+    message.content.length +
+    (message.createdTasks?.reduce((sum, task) => sum + task.title.length + 1, 0) ?? 0);
   let start = messages.length - 1;
-  let length = messages[start].content.length;
+  let length = messageLength(messages[start]);
   while (
     start > 0 &&
     messages.length - start < 100 &&
-    length + messages[start - 1].content.length <= 48000
+    length + messageLength(messages[start - 1]) <= 48000
   ) {
-    length += messages[--start].content.length;
+    length += messageLength(messages[--start]);
   }
   while (start < messages.length - 1 && messages[start].role !== "user") start++;
   return messages.slice(start);

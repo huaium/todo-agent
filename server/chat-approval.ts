@@ -6,6 +6,7 @@ import { interruptedReply, type openConversation } from "./conversation.ts";
 import { PlannerError } from "./task-details.ts";
 import { chatWriteReview, type TaskWrite } from "./task-request.ts";
 import type { TaskStore } from "./task-store.ts";
+import type { ChatCapture } from "./chat-capture.ts";
 
 const labels: Record<string, string> = {
   title: "标题",
@@ -103,10 +104,21 @@ export class ApprovalTurn {
   private revision: number;
   private readonly chat: ReturnType<typeof openConversation>;
   private readonly tasks: TaskStore;
-  constructor(chat: ReturnType<typeof openConversation>, tasks: TaskStore, revision: number) {
+  private readonly capture: ChatCapture;
+  constructor(
+    chat: ReturnType<typeof openConversation>,
+    tasks: TaskStore,
+    revision: number,
+    capture: ChatCapture,
+  ) {
     this.chat = chat;
     this.tasks = tasks;
     this.revision = revision;
+    this.capture = capture;
+  }
+  private interrupt(reply: string) {
+    const result = this.capture.finish(this.tasks, { reply }, { keepReply: true });
+    this.chat.appendReply(this.revision, true, result);
   }
   private async review(write: TaskWrite) {
     this.abort.signal.throwIfAborted();
@@ -128,23 +140,11 @@ export class ApprovalTurn {
       async () => {
         try {
           const result = await work(this.abort.signal);
-          if (!this.abort.signal.aborted)
-            this.chat.appendReply(
-              this.revision,
-              true,
-              result.reply,
-              result.preview,
-              result.question,
-              result.sortChange,
-            );
+          if (!this.abort.signal.aborted) this.chat.appendReply(this.revision, true, result);
           this.boundary.resolve();
         } catch (error) {
           if (this.abort.signal.aborted) return;
-          this.chat.appendReply(
-            this.revision,
-            true,
-            error instanceof PlannerError ? error.message : interruptedReply,
-          );
+          this.interrupt(error instanceof PlannerError ? error.message : interruptedReply);
           this.boundary.reject(error);
         }
       },
@@ -156,7 +156,7 @@ export class ApprovalTurn {
     if (!decision) throw new PlannerError("审批已结束。");
     this.decision = undefined;
     if (!allow) {
-      this.chat.appendReply(this.revision, true, "已取消待审批的更改。");
+      this.interrupt("已取消待审批的更改。");
       this.abort.abort();
       decision.resolve();
       return Promise.resolve();

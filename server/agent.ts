@@ -16,6 +16,7 @@ const instructions = `你是小明，帮助用户用中文管理本地待办清�
 用户单独询问某天有哪些任务到期时，直接调用 showTasksDue 展示清单。
 涉及其他条件时，用 listTasks 筛选，只报告满足条件的条目。子任务的截止日期独立于父任务。
 创建带详情的任务时，通过 createTask 的 details 一次保存，同名子任务用父任务区分。
+一条消息包含多个独立待办时，逐项保存完毕再回复。标题简洁，具体要求、原话和限制放入该项的 notes。仅在用户表明某项的优先级或紧急程度时设置该项的 priority，并在 priorityQuote 中引用原文依据。不要给其余任务默认设置中优先级。
 删除父任务只删除这一条，子任务仍保留。提醒可在应用打开时送达。
 “将甲移到乙上面/下面”等排列请求要调用 moveTaskRelative，不要拆成多次修改。允许把子任务移到父任务上面，成功后说明层级变化。移动项或参照项重名时先用 replyWithoutChanges 询问是哪一条。
 “这些”指当前筛选中未完成的任务。用 listTasks(visible=true) 查询。将这些任务一起改期时直接调用 previewReschedule，传 visible=true 和日期；服务端会涵盖全部匹配的待办。selectedId 是选中的任务。
@@ -24,16 +25,22 @@ const instructions = `你是小明，帮助用户用中文管理本地待办清�
 设置重复、截止日期和提醒时，将这些关联字段一次交给 setTaskDetails。`;
 
 const interactiveInstructions = `新建任务直接保存，没指定截止时间也先创建，不要自行推测日期或时刻。明确不设截止时间、只需要日期时设置 skipDeadlineQuestion。
+“没提时间的先空着”等要求适用于本条消息中的全部任务，保留给定的日期，缺少的字段留空，并对每项创建设置 skipDeadlineQuestion=true。回复里也不要追问时间。截止时间的交互由界面负责。
 若要修改或删除一条任务，但有多个匹配项且用户没指明具体哪条，必须调用 askTaskChoice 传入所有候选 ID 和原始操作。用户明确针对多条任务时遵循批量操作规则。
 工作区的 question 是上轮尚未回答的问题。如果本轮是对它的回答，必须调用 answerQuestion，禁止通过创建或直接修改来代替回答。如果用户换话题，直接处理新请求。`;
 
-function historyMessage({ role, content }: ChatMessage): Message {
+function historyMessage({ role, content, createdTasks }: ChatMessage): Message {
   const timestamp = Date.now();
   if (role === "user") return { role, content, timestamp };
   // The active question is provided separately in the workspace context.
   return {
     role,
-    content: [{ type: "text", text: content }],
+    content: [
+      {
+        type: "text",
+        text: createdTasks ? content + "\n" + createdTasks.map((t) => t.title).join("\n") : content,
+      },
+    ],
     timestamp,
     api: chatModel.api,
     provider: chatModel.provider,
@@ -88,9 +95,9 @@ export async function reply(
     question?: ChatQuestion;
   },
   signal?: AbortSignal,
-): Promise<string> {
+): Promise<{ reply: string; keepReply?: boolean }> {
   if (!process.env.DEEPSEEK_API_KEY)
-    return "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。";
+    return { reply: "请在项目的 .env 中填写 DEEPSEEK_API_KEY，然后重启服务。" };
   const today = localMinute(
     new Date(),
     planner?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -98,6 +105,7 @@ export async function reply(
   const writes = new Set(tools.filter((tool) => tool.writes).map((tool) => tool.name));
   const changes: string[] = [];
   let answer = "";
+  let keepReply = false;
   let turns = 0;
   const agent = new Agent({
     initialState: {
@@ -118,6 +126,8 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
     finishTurn({ message, toolResults }) {
       turns++;
       for (const result of toolResults) {
+        if (result.isError || (writes.has(result.toolName) && result.toolName !== "createTask"))
+          keepReply = true;
         if (result.isError) continue;
         if (writes.has(result.toolName)) changes.push(contentText(result.content));
         else if (toolResults.length === 1 && !changes.length) {
@@ -144,9 +154,10 @@ ${tools.some((tool) => tool.name === "askTaskChoice") ? interactiveInstructions 
   } finally {
     signal?.removeEventListener("abort", abort);
   }
-  if (answer) return answer;
+  if (answer) return { reply: answer, keepReply };
   if (!changes.length && agent.state.errorMessage) throw new Error(agent.state.errorMessage);
-  return changes.length
+  const fallback = changes.length
     ? `本轮未能生成完整回复。已保存的操作结果：\n${changes.join("\n")}`
     : "本轮未能完成，请再描述一下需要处理的任务。";
+  return { reply: fallback, keepReply: true };
 }

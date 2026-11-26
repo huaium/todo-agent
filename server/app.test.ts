@@ -15,6 +15,50 @@ import { taskTools } from "./task-tools.ts";
 import { candidate } from "./chat-questions.ts";
 import { workspaceContext } from "./agent.ts";
 import { bulkPreviews } from "./planner.ts";
+import { ChatCapture } from "./chat-capture.ts";
+
+test("批量回执只包含本轮保存的任务，保留日期精度和单条任务的追问偏好", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const capture = new ChatCapture("可留空，定时那件比较急。");
+  const create = taskTools(port, store, undefined, undefined, undefined, undefined, capture).find(
+    (tool) => tool.name === "createTask",
+  )!;
+  const finish = () => capture.finish(store, { reply: "已记下。" }, { interactive: true });
+  store.create("已有任务");
+  await create.execute("first", {
+    title: "可留空",
+    skipDeadlineQuestion: true,
+    details: { priority: "中" },
+  });
+  assert.equal(finish().question, undefined);
+  await create.execute("rejected", { title: "" });
+  assert.equal(finish().createdTasks, undefined);
+  await create.execute("second", { title: "仅设日期", details: { dueDate: "2030-04-05" } });
+  await create.execute("third", {
+    title: "定时",
+    details: { dueDate: "2030-04-06", dueTime: "09:00", priority: "高" },
+    priorityQuote: "比较急",
+  });
+  assert.equal(store.list().find((task) => task.title === "可留空")!.priority, undefined);
+  assert.equal(store.list().find((task) => task.title === "定时")!.priority, "高");
+  const result = finish();
+  assert.equal(result.question, undefined);
+  assert.equal(result.reply, "已添加 3 项任务。1 项有具体时间，1 项仅设日期，1 项未设日期。");
+  assert.deepEqual(
+    result.createdTasks?.map((t) => [t.title, t.dueDate, t.dueTime]),
+    [
+      ["可留空", null, null],
+      ["仅设日期", "2030-04-05", null],
+      ["定时", "2030-04-06", "09:00"],
+    ],
+  );
+  const single = new ChatCapture("可留空");
+  single.record(result.createdTasks![0].id, false);
+  assert.equal(
+    single.finish(store, { reply: "已记下。" }, { interactive: true }).question?.kind,
+    "deadline",
+  );
+});
 
 async function startTestApp(
   t: TestContext,

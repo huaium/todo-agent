@@ -214,17 +214,21 @@ export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
     content: String(r.content),
     ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
     ...(typeof r.sort_change === "string" && { sortChange: JSON.parse(r.sort_change) }),
+    ...(typeof r.created_tasks === "string" && { createdTasks: JSON.parse(r.created_tasks) }),
   }));
 }
 export function readConversation(db: DatabaseSync): Conversation {
   return { ...chatState(db), messages: readMessages(db) };
 }
 export function insertMessage(db: DatabaseSync, message: ChatMessage) {
-  db.prepare("INSERT INTO messages(role,content,question,sort_change) VALUES(?,?,?,?)").run(
+  db.prepare(
+    "INSERT INTO messages(role,content,question,sort_change,created_tasks) VALUES(?,?,?,?,?)",
+  ).run(
     message.role,
     message.content,
     JSON.stringify(message.question) ?? null,
     JSON.stringify(message.sortChange) ?? null,
+    JSON.stringify(message.createdTasks) ?? null,
   );
 }
 
@@ -232,6 +236,8 @@ const approvalColumns = `
   ALTER TABLE conversation ADD COLUMN approval_mode TEXT CHECK(approval_mode IN ('allow','cautious'));
   ALTER TABLE conversation ADD COLUMN approval TEXT CHECK(approval IS NULL OR json_valid(approval));
 `;
+const createdTasksColumn =
+  "ALTER TABLE messages ADD COLUMN created_tasks TEXT CHECK(created_tasks IS NULL OR json_valid(created_tasks))";
 const schema = `
   CREATE TABLE settings(id INTEGER PRIMARY KEY CHECK(id=1), time_zone TEXT) STRICT;
   CREATE TABLE lists(position INTEGER PRIMARY KEY, id TEXT NOT NULL UNIQUE, name TEXT NOT NULL) STRICT;
@@ -257,6 +263,7 @@ function importDatabase(directory: string, filename: string) {
         const remember = db.prepare("INSERT INTO task_creation(id) VALUES(?)");
         for (const id of creationOrder) remember.run(id);
         db.exec(approvalColumns);
+        db.exec(createdTasksColumn);
         db.prepare("INSERT INTO settings VALUES(1,?)").run(planner.timeZone);
         const list = db.prepare("INSERT INTO lists(id,name) VALUES(?,?)");
         for (const l of planner.lists) list.run(l.id, l.name);
@@ -291,6 +298,7 @@ function importDatabase(directory: string, filename: string) {
         deepStrictEqual(readConversation(db), chat);
         db.exec("PRAGMA application_id=1414480975");
         trackPlannerChanges(db);
+        db.exec("PRAGMA user_version=7");
       });
     } finally {
       db.close();
@@ -318,12 +326,13 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
         version !== 3 &&
         version !== 4 &&
         version !== 5 &&
-        version !== 6)
+        version !== 6 &&
+        version !== 7)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 6 && !readOnly)
+    if (version !== 7 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -340,6 +349,10 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
           db.exec("PRAGMA user_version=5");
         }
         if (db.prepare("PRAGMA user_version").get()?.user_version === 5) trackPlannerChanges(db);
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 6) {
+          db.exec(createdTasksColumn);
+          db.exec("PRAGMA user_version=7");
+        }
       });
     return db;
   } catch (error) {

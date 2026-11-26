@@ -86,6 +86,7 @@ test("opens a version 1 planner and adds the bin without changing its tasks", (t
     .all())
     db.exec("DROP TRIGGER " + row.name);
   db.exec("DROP TABLE planner_revision");
+  db.exec("ALTER TABLE messages DROP COLUMN created_tasks");
   db.exec(
     "DROP TRIGGER remember_creation; DROP TABLE task_creation; DROP TABLE task_bin; ALTER TABLE messages DROP COLUMN sort_change; ALTER TABLE conversation DROP COLUMN approval_mode; ALTER TABLE conversation DROP COLUMN approval; PRAGMA user_version=1",
   );

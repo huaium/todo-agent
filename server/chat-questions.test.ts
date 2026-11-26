@@ -48,7 +48,7 @@ async function restore(t: TestContext, setup: (store: TaskStore) => ChatQuestion
   const store = createTaskStore(db);
   const q = setup(store);
   const chat = openConversation(db);
-  chat.appendReply(0, false, "请选择", undefined, q);
+  chat.appendReply(0, false, { reply: "请选择", question: q });
   const server = createApp({ tasks: store, chat }).listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
   await once(server, "listening");
