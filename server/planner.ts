@@ -54,6 +54,14 @@ export function bulkPreviews(store: TaskStore) {
 export function plannerRouter(store: TaskStore, bulk: ReturnType<typeof bulkPreviews>) {
   const router = Router();
   router.get("/", (_req, res) => res.json(store.snapshot()));
+  router.get("/sync", (req, res) => {
+    const result = store.sync(
+      typeof req.query.after === "string" ? req.query.after : undefined,
+      req.query.bin === "1",
+    );
+    res.set("Cache-Control", "no-store");
+    return result ? res.json(result) : res.sendStatus(204);
+  });
   router.get("/bin", (_req, res) => res.set("Cache-Control", "no-store").json(store.bin()));
   router.post("/bin/:id/restore", (req, res) => {
     const { deletedAt } = binEntry.parse(req.body);

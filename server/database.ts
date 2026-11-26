@@ -137,6 +137,16 @@ const creationSchema = `
     DELETE FROM task_creation WHERE id=OLD.id;
   END;
 `;
+function trackPlannerChanges(db: DatabaseSync) {
+  db.exec(
+    "CREATE TABLE planner_revision(id INTEGER PRIMARY KEY CHECK(id=1), revision INTEGER NOT NULL) STRICT; INSERT INTO planner_revision VALUES(1,0)",
+  );
+  for (const table of ["tasks", "lists", "task_bin", "settings"])
+    for (const event of ["INSERT", "UPDATE", "DELETE"])
+      db.exec(`CREATE TRIGGER revision_${table}_${event} AFTER ${event} ON ${table}
+        BEGIN UPDATE planner_revision SET revision=revision+1 WHERE id=1; END;`);
+  db.exec("PRAGMA user_version=6");
+}
 export function readCreationOrder(db: DatabaseSync, now: number): string[] {
   if (Number(db.prepare("PRAGMA user_version").get()?.user_version) < 5)
     return [
@@ -279,7 +289,8 @@ function importDatabase(directory: string, filename: string) {
         for (const message of chat.messages) insertMessage(db, message);
         deepStrictEqual(readPlannerDocument(db), planner);
         deepStrictEqual(readConversation(db), chat);
-        db.exec("PRAGMA application_id=1414480975; PRAGMA user_version=5");
+        db.exec("PRAGMA application_id=1414480975");
+        trackPlannerChanges(db);
       });
     } finally {
       db.close();
@@ -302,12 +313,17 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
     const version = db.prepare("PRAGMA user_version").get()?.user_version;
     if (
       db.prepare("PRAGMA application_id").get()?.application_id !== 1414480975 ||
-      (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5)
+      (version !== 1 &&
+        version !== 2 &&
+        version !== 3 &&
+        version !== 4 &&
+        version !== 5 &&
+        version !== 6)
     )
       throw new Error("Unrecognized planner database or schema version: " + filename);
     if (db.prepare("PRAGMA quick_check").get()?.quick_check !== "ok")
       throw new Error("Invalid planner database: " + filename);
-    if (version !== 5 && !readOnly)
+    if (version !== 6 && !readOnly)
       transaction(db, () => {
         if (db.prepare("PRAGMA user_version").get()?.user_version === 1) {
           db.exec(binTable);
@@ -323,6 +339,7 @@ export function openDatabase(directory: string, readOnly = false): DatabaseSync 
           db.exec(creationSchema);
           db.exec("PRAGMA user_version=5");
         }
+        if (db.prepare("PRAGMA user_version").get()?.user_version === 5) trackPlannerChanges(db);
       });
     return db;
   } catch (error) {

@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishTaskRows } from "./task-row-motion.ts";
-import { localMinute, pendingReminder, type BinItem, type Planner } from "../shared/planner.ts";
+import {
+  localMinute,
+  pendingReminder,
+  type BinItem,
+  type Planner,
+  type PlannerSync,
+} from "../shared/planner.ts";
 
 export class ApiError extends Error {
   status: number;
@@ -27,7 +33,7 @@ export function usePlanner(showBin: boolean) {
   const [bin, setBin] = useState<BinItem[] | null>(null);
   const [ready, setReady] = useState(false);
   const [refreshRevision, setRefreshRevision] = useState(0);
-  const lastResults = useRef<{ showBin: boolean; signature: string } | null>(null);
+  const lastResults = useRef<{ showBin: boolean; revision: string } | null>(null);
   const [error, setError] = useState("");
   const [now, setNow] = useState(new Date());
   const serial = useRef(0);
@@ -38,28 +44,27 @@ export function usePlanner(showBin: boolean) {
     async (mode: "refresh" | "saved" | "reorder") => {
       const ticket = ++serial.current;
       try {
-        let next = await api<Planner>("planner");
-        if (!next.timeZone)
-          next = await api<Planner>("planner/timezone", "POST", {
+        const previous = lastResults.current;
+        const path = "planner/sync?bin=" + Number(showBin);
+        const after =
+          previous?.showBin === showBin ? "&after=" + encodeURIComponent(previous.revision) : "";
+        let snapshot = await api<PlannerSync | undefined>(path + after);
+        if (!snapshot || ticket !== serial.current) return;
+        if (!snapshot.planner.timeZone) {
+          await api("planner/timezone", "POST", {
             timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
           });
-        const deleted = showBin ? await api<BinItem[]>("planner/bin") : null;
+          snapshot = await api<PlannerSync>(path);
+        }
         if (ticket === serial.current) {
-          const signature = JSON.stringify([
-            next.lists,
-            showBin ? deleted : next.tasks,
-            next.timeZone,
-          ]);
-          const previous = lastResults.current;
-          const refreshChanged =
-            mode === "refresh" && previous?.showBin === showBin && previous.signature !== signature;
-          lastResults.current = { showBin, signature };
+          const { revision, planner: next, bin: deleted } = snapshot;
+          const refreshChanged = mode === "refresh" && previous?.showBin === showBin;
+          lastResults.current = { showBin, revision };
           const publish = () => {
             if (refreshChanged) setRefreshRevision((value) => value + 1);
             setBin(deleted);
             setData(next);
             setReady(true);
-            setNow(new Date());
           };
           if (mode === "saved") publishTaskRows(next.tasks, publish);
           else publish();
@@ -71,6 +76,22 @@ export function usePlanner(showBin: boolean) {
     [showBin],
   );
   const refresh = useCallback(() => load("refresh"), [load]);
+  useEffect(() => {
+    function tick() {
+      const next = new Date();
+      setNow((previous) =>
+        Math.floor(previous.getTime() / 60000) === Math.floor(next.getTime() / 60000)
+          ? previous
+          : next,
+      );
+    }
+    const timer = window.setInterval(tick, 15000);
+    window.addEventListener("focus", tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", tick);
+    };
+  }, []);
   useEffect(() => {
     void refresh();
     const bus = new BroadcastChannel("xiaoming-planner");

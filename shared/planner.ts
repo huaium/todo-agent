@@ -41,6 +41,11 @@ export interface Planner {
   lists: PersonalList[];
   timeZone: string | null;
 }
+export interface PlannerSync {
+  revision: string;
+  planner: Planner;
+  bin: BinItem[] | null;
+}
 export function localMinute(date: Date, timeZone: string) {
   const values = Object.fromEntries(
     new Intl.DateTimeFormat("en-GB", {

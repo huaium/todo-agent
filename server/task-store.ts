@@ -10,6 +10,7 @@ import {
   offsetDate,
   pendingReminder,
   type Planner,
+  type PlannerSync,
   type BinItem,
   type PlannerTask,
 } from "../shared/planner.ts";
@@ -19,6 +20,7 @@ export interface TaskStore {
   list(): PlannerTask[];
   listByCreation(): PlannerTask[];
   snapshot(): Planner;
+  sync(previous: string | undefined, includeBin: boolean): PlannerSync | undefined;
   initializeZone(zone: string): void;
   create(title: string, details?: TaskDetails): PlannerTask;
   update(
@@ -62,6 +64,8 @@ function updateSeriesTemplate(series: Series, task: PlannerTask, delta: Changes)
   }
 }
 export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskStore {
+  const session = randomUUID();
+  const revisionQuery = db.prepare("SELECT revision FROM planner_revision WHERE id=1");
   const byId = db.prepare("SELECT payload FROM tasks WHERE id=?");
   const purge = db.prepare("DELETE FROM task_bin WHERE deleted_at<=?");
   const purgeExpired = () => {
@@ -235,6 +239,18 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
         .all()
         .map((row) => JSON.parse(String(row.payload))),
     snapshot: () => readPlanner(db),
+    sync(previous, includeBin) {
+      if (includeBin) purgeExpired();
+      return transaction(
+        db,
+        () => {
+          const revision = `${session}/${revisionQuery.get()!.revision}/${Number(includeBin)}`;
+          if (previous === revision) return;
+          return { revision, planner: readPlanner(db), bin: includeBin ? this.bin() : null };
+        },
+        "DEFERRED",
+      );
+    },
     initializeZone(value) {
       if (db.prepare("SELECT time_zone FROM settings WHERE id=1").get()!.time_zone) return;
       try {

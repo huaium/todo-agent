@@ -81,6 +81,11 @@ test("opens a version 1 planner and adds the bin without changing its tasks", (t
   const task = { id: "before-bin", title: "历史任务", done: false };
   writeFileSync(join(dir, "tasks.json"), JSON.stringify([task]));
   const db = openDatabase(dir);
+  for (const row of db
+    .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name GLOB 'revision_*'")
+    .all())
+    db.exec("DROP TRIGGER " + row.name);
+  db.exec("DROP TABLE planner_revision");
   db.exec(
     "DROP TRIGGER remember_creation; DROP TABLE task_creation; DROP TABLE task_bin; ALTER TABLE messages DROP COLUMN sort_change; ALTER TABLE conversation DROP COLUMN approval_mode; ALTER TABLE conversation DROP COLUMN approval; PRAGMA user_version=1",
   );

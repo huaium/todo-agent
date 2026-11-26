@@ -98,6 +98,37 @@ test("manual moves and bin restores preserve creation order in the public API", 
   assert.deepEqual((await request("GET", "/api/tasks")).body, [a, b, c]);
 });
 
+test("planner sync skips unchanged snapshots and tracks writes, ordering, lists and the bin", async (t) => {
+  const { request, store } = await startTestApp(t);
+  let token = "";
+  const sync = (bin = false) =>
+    request("GET", "/api/planner/sync?bin=" + Number(bin) + "&after=" + encodeURIComponent(token));
+  async function changed(bin = false) {
+    const response = await sync(bin);
+    assert.equal(response.status, 200);
+    token = response.body.revision;
+    assert.deepEqual(response.body.planner, store.snapshot());
+    assert.deepEqual(response.body.bin, bin ? store.bin() : null);
+    assert.equal((await sync(bin)).status, 204);
+  }
+  await changed();
+  store.initializeZone("Asia/Singapore");
+  await changed();
+  const list = store.editList(null, "工作");
+  await changed();
+  const a = store.create("A", { listId: list }),
+    b = store.create("B");
+  await changed();
+  store.update(a.id, { notes: "草稿" });
+  await changed();
+  store.reorder([a.id, b.id], [b.id, a.id]);
+  await changed();
+  store.remove(a.id);
+  await changed(true);
+  store.deleteBinItem(a.id, store.bin()[0].deletedAt);
+  await changed(true);
+});
+
 test("relative movement rejects a changed anchor before promoting a child", async (t) => {
   const { store, request } = await startTestApp(t);
   const anchor = store.create("开会"),
