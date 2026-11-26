@@ -53,7 +53,7 @@ export function ChatPanel({
   const [tab] = useState(tabIdentity);
   const [initialTurn] = useState(() => Number(sessionValue("planner-applied-sort:" + tab)) || 0);
   const appliedTurn = useRef(initialTurn);
-  const { state, active, error, reload, submit } = useConversation();
+  const { state, active, error, reload, submit, loadOlder, loadingOlder } = useConversation();
   const [draft, setDraft] = useState("");
   const [shiftToSend, chooseSendShortcut] = useSendShortcut();
   const speechModel = useSpeechModel();
@@ -227,6 +227,10 @@ export function ChatPanel({
       <ModelDownload model={speechModel} open={showModel} close={() => setShowModel(false)} />
       {state ? (
         <ChatHistory
+          key={state.history}
+          hasOlder={state.hasOlder}
+          loadingOlder={loadingOlder}
+          loadOlder={loadOlder}
           openTask={async (id) => {
             const error = await openTask(id);
             if (!error && mobile) dismissSheet();

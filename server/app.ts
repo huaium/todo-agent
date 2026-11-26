@@ -20,7 +20,7 @@ import { ApprovalTurn } from "./chat-approval.ts";
 import { ChatCapture } from "./chat-capture.ts";
 import { cardTask } from "./chat-card.ts";
 import { chatWriteReview } from "./task-request.ts";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import type { BulkPreview } from "../shared/chat.ts";
 
 interface AppDependencies {
@@ -29,6 +29,20 @@ interface AppDependencies {
   bulk?: ReturnType<typeof bulkPreviews>;
   chat: ReturnType<typeof openConversation>;
 }
+
+const sequence = z
+  .string()
+  .regex(/^\d+$/)
+  .transform(Number)
+  .pipe(z.number().int().nonnegative())
+  .optional();
+const historyQuery = z.object({
+  window: z.literal("1").optional(),
+  history: z.string().optional(),
+  since: sequence,
+  before: sequence,
+  after: sequence,
+});
 
 export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: AppDependencies) {
   const app = express();
@@ -110,10 +124,33 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
 
   app.get("/api/chat", (req, res) => {
     res.set("Cache-Control", "no-store");
-    return req.query.after === String(currentState().revision)
-      ? res.sendStatus(204)
-      : res.json(chat.read());
+    const query = historyQuery.parse(req.query);
+    const revision = currentState().revision;
+    if (
+      query.before === undefined &&
+      query.after === revision &&
+      (!query.history || query.history === chat.history)
+    )
+      return res.sendStatus(204);
+    return res.json(responsePage(query));
   });
+  function responsePage(query: z.output<typeof historyQuery>) {
+    const page = chat.page(query);
+    if (query.window || page.hasOlder || query.history) return page;
+    // Keep the original response shape for callers whose complete conversation fits on one page.
+    const {
+      history: _history,
+      first: _first,
+      last: _last,
+      hasOlder: _older,
+      mode: _mode,
+      ...conversation
+    } = page;
+    return {
+      ...conversation,
+      messages: conversation.messages.map(({ seq: _seq, ...message }) => message),
+    };
+  }
   app.post("/api/chat", async (req, res) => {
     const port = req.socket.localPort!;
     if (req.body?.action === undefined) {
@@ -130,24 +167,28 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
       return res.json(result);
     }
     const command = conversationCommand.parse(req.body);
+    const query = historyQuery.parse(req.query);
     const current = currentState();
-    if (current.revision !== command.revision)
+    if (
+      current.revision !== command.revision ||
+      (query.history !== undefined && query.history !== chat.history)
+    )
       return res.status(409).json({ error: "对话已更新，请查看最新消息。" });
     if (command.action === "review") {
       if (!reviewTurn || !current.approval || command.token !== current.approval.token)
         return res.status(409).json({ error: "审批已更新，请查看最新消息。" });
       await reviewTurn.decide(command.allow);
-      return res.json(chat.read());
+      return res.json(responsePage(query));
     }
     if (current.pending) return res.status(409).json({ error: "请先完成当前对话或审批。" });
     if (command.action === "setApprovalMode") {
       chat.setApprovalMode(command.revision, command.mode);
-      return res.json(chat.read());
+      return res.json(responsePage(query));
     }
     if (command.action === "clear") {
       if (current.preview) bulk.discard(current.preview.token);
       chat.clear(command.revision);
-      return res.json(chat.read());
+      return res.json(responsePage(query));
     }
     if (command.action === "send" || command.action === "answer") {
       const previous = chat.lastQuestion();
@@ -175,7 +216,7 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
       if (current.approvalMode === "cautious") {
         reviewTurn = new ApprovalTurn(chat, tasks, pendingRevision, capture);
         await reviewTurn.start(work);
-        return res.json(chat.read());
+        return res.json(responsePage(query));
       }
       let result: QuestionResult & { preview?: BulkPreview | null };
       try {
@@ -186,7 +227,7 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
         throw error;
       }
       chat.appendReply(pendingRevision, true, result);
-      return res.json(chat.read());
+      return res.json(responsePage(query));
     }
     const preview = current.preview;
     if (!preview || preview.token !== command.token)
@@ -194,7 +235,7 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
     if (command.action === "cancel") {
       bulk.discard(preview.token);
       chat.appendReply(command.revision, false, { reply: "已取消改期。", preview: null });
-      return res.json(chat.read());
+      return res.json(responsePage(query));
     }
     let previous;
     try {
@@ -222,7 +263,7 @@ export function createApp({ reply, tasks, chat, bulk = bulkPreviews(tasks) }: Ap
         ],
       },
     });
-    return res.json(chat.read());
+    return res.json(responsePage(query));
   });
 
   app.all(["/api/tasks/:id", "/api/planner/tasks/:id"], (req, res, next) => {

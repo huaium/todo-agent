@@ -1,7 +1,7 @@
 import { closeSync, existsSync, linkSync, mkdirSync, mkdtempSync, openSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import type { ChatMessage, Conversation } from "../shared/chat.ts";
+import { DatabaseSync, type SQLOutputValue } from "node:sqlite";
+import type { ChatMessage, ChatPage, Conversation } from "../shared/chat.ts";
 import { inbox, type frequencies, type PlannerTask, type Planner } from "../shared/planner.ts";
 
 export type Series = {
@@ -100,14 +100,52 @@ export function readMessages(db: DatabaseSync, latest?: number): ChatMessage[] {
           .prepare(fields + " DESC LIMIT ?")
           .all(latest)
           .reverse();
-  return rows.map((r) => ({
+  return rows.map(decodeMessage);
+}
+function decodeMessage(r: Record<string, SQLOutputValue>): ChatMessage {
+  return {
     role: r.role as ChatMessage["role"],
     content: String(r.content),
     ...(r.question !== null && { question: JSON.parse(String(r.question)) }),
     ...(typeof r.sort_change === "string" && { sortChange: JSON.parse(r.sort_change) }),
     ...(typeof r.created_tasks === "string" && { createdTasks: JSON.parse(r.created_tasks) }),
     ...(typeof r.presentation === "string" && { presentation: JSON.parse(r.presentation) }),
-  }));
+  };
+}
+
+export function readChatPage(
+  db: DatabaseSync,
+  history: string,
+  cursor: { since?: number; before?: number },
+): ChatPage {
+  const limit = 50;
+  const where =
+    cursor.before !== undefined
+      ? "WHERE seq < ?"
+      : cursor.since !== undefined
+        ? "WHERE seq > ?"
+        : "";
+  const boundary = cursor.before ?? cursor.since;
+  const rows = db
+    .prepare(`SELECT * FROM messages ${where} ORDER BY seq DESC LIMIT ?`)
+    .all(...(boundary === undefined ? [] : [boundary]), limit + 1);
+  const hasOlder = rows.length > limit;
+  if (hasOlder) rows.pop();
+  rows.reverse();
+  return {
+    ...chatState(db),
+    history,
+    mode:
+      cursor.before !== undefined
+        ? "older"
+        : cursor.since !== undefined && !hasOlder
+          ? "append"
+          : "latest",
+    first: Number(rows[0]?.seq ?? 0),
+    last: Number(rows.at(-1)?.seq ?? cursor.since ?? 0),
+    hasOlder,
+    messages: rows.map((row) => ({ ...decodeMessage(row), seq: Number(row.seq) })),
+  };
 }
 export function readConversation(db: DatabaseSync): Conversation {
   return { ...chatState(db), messages: readMessages(db) };

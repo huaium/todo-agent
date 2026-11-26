@@ -128,6 +128,14 @@ export const conversationSchema = z.object({
   approval: approvalSchema.optional(),
 });
 export type Conversation = z.infer<typeof conversationSchema>;
+export type ChatPage = Omit<Conversation, "messages"> & {
+  messages: (ChatMessage & { seq: number })[];
+  history: string;
+  first: number;
+  last: number;
+  hasOlder: boolean;
+  mode: "latest" | "append" | "older";
+};
 const viewContext = z.object({
   view: z.string(),
   visibleIds: z.array(z.string()),

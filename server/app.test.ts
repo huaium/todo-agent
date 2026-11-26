@@ -203,6 +203,69 @@ async function startTestApp(
   return { request, store, port, directory, chat, db, bulk };
 }
 
+test("chat pages keep history on disk and transfer only new messages and control changes", async (t) => {
+  const { request, chat } = await startTestApp(t);
+  for (let index = 0; index < 1001; index++) {
+    chat.begin(index * 2, "消息 " + index);
+    chat.appendReply(index * 2 + 1, true, "回复".repeat(256));
+  }
+  const url = "/api/chat?window=1";
+  const latest = (await request("GET", url)).body;
+  assert.equal(latest.mode, "latest");
+  assert.equal(latest.messages.length, 50);
+  assert.equal(latest.hasOlder, true);
+  const cursor = "&history=" + latest.history;
+  const older = (await request("GET", url + cursor + "&before=" + latest.first)).body;
+  assert.equal(older.mode, "older");
+  assert.equal(older.messages.length, 50);
+  assert.equal(older.last, latest.first - 1);
+  const sync = url + cursor + "&since=" + latest.last + "&after=" + latest.revision;
+  assert.equal((await request("GET", sync)).status, 204);
+  chat.begin(latest.revision, "新消息");
+  const delta = (await request("GET", sync)).body;
+  assert.equal(delta.mode, "append");
+  assert.deepEqual(
+    delta.messages.map((m: ChatMessage) => m.content),
+    ["新消息"],
+  );
+  chat.appendReply(delta.revision, true, "收到");
+  const state = chat.state();
+  const receipt = (
+    await request("POST", url + cursor + "&since=" + delta.last, {
+      action: "setApprovalMode",
+      revision: state.revision,
+      mode: "cautious",
+    })
+  ).body;
+  assert.equal(receipt.messages.length, 1);
+  assert.equal(receipt.approvalMode, "cautious");
+  const controls = (
+    await request("POST", url + cursor + "&since=" + receipt.last, {
+      action: "setApprovalMode",
+      revision: receipt.revision,
+      mode: "allow",
+    })
+  ).body;
+  assert.deepEqual(controls.messages, []);
+  assert.equal(controls.last, receipt.last);
+  const cleared = (
+    await request("POST", url + cursor + "&since=" + controls.last, {
+      action: "clear",
+      revision: controls.revision,
+    })
+  ).body;
+  assert.equal(cleared.mode, "latest");
+  assert.notEqual(cleared.history, latest.history);
+  assert.deepEqual(cleared.messages, []);
+  const stale = (await request("GET", url + cursor + "&before=" + older.first)).body;
+  assert.equal(stale.history, cleared.history);
+  assert.deepEqual(stale.messages, []);
+  assert.equal(
+    (await request("POST", sync, { action: "clear", revision: cleared.revision })).status,
+    409,
+  );
+});
+
 test("preview confirmations and cancellations leave an independent question answerable in either order", async (t) => {
   const { request, store, chat, bulk } = await startTestApp(t);
   for (const action of ["cancel", "confirm"]) {

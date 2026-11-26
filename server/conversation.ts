@@ -1,4 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
+import { randomUUID } from "node:crypto";
 import type {
   ApprovalMode,
   ChatApproval,
@@ -11,6 +12,7 @@ import {
   chatState,
   insertMessage,
   readConversation,
+  readChatPage,
   readMessages,
   transaction,
 } from "./database.ts";
@@ -23,6 +25,7 @@ export class ChatConflict extends Error {
   }
 }
 export function openConversation(db: DatabaseSync) {
+  let history = randomUUID();
   const advance = db.prepare(
     "UPDATE conversation SET revision=revision+1,pending=?,preview=CASE WHEN ? THEN preview ELSE ? END,active_question_seq=CASE WHEN ? THEN NULL ELSE active_question_seq END,approval=NULL WHERE id=1 AND revision=? AND pending=?",
   );
@@ -79,6 +82,16 @@ export function openConversation(db: DatabaseSync) {
   return {
     state: () => chatState(db),
     read: () => transaction(db, () => readConversation(db), "DEFERRED"),
+    get history() {
+      return history;
+    },
+    page(cursor: { history?: string; since?: number; before?: number }) {
+      return transaction(
+        db,
+        () => readChatPage(db, history, cursor.history === history ? cursor : {}),
+        "DEFERRED",
+      );
+    },
     lastQuestion(): ChatQuestion | undefined {
       const row = db
         .prepare(
@@ -90,7 +103,10 @@ export function openConversation(db: DatabaseSync) {
     context: () => recentContext(readMessages(db, 100)),
     begin: (revision: number, content: string) =>
       write(revision, false, true, { role: "user", content }),
-    clear: (revision: number) => write(revision, false, false, undefined, null),
+    clear(revision: number) {
+      write(revision, false, false, undefined, null);
+      history = randomUUID();
+    },
     appendReply,
     expirePreview(revision: number) {
       if (

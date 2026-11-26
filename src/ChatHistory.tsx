@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
 import type { ChatMessage, QuestionAnswer, TaskCard } from "../shared/chat.ts";
 import { ChatTaskCard, type OpenChatTask } from "./ChatTaskCard.tsx";
 import { QuestionControls } from "./QuestionControls.tsx";
@@ -67,7 +67,10 @@ interface ChatHistoryProps {
   openTask: OpenChatTask;
   children: ReactNode;
   scrollActions: boolean;
-  messages: ChatMessage[];
+  messages: (ChatMessage & { seq?: number })[];
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  loadOlder(): Promise<void>;
   activeQuestionId?: string;
   pending: boolean;
   onSelectPrompt: (prompt: string) => void;
@@ -81,6 +84,9 @@ export function ChatHistory({
   scrollActions,
   messages,
   activeQuestionId,
+  hasOlder,
+  loadingOlder,
+  loadOlder,
   pending,
   onSelectPrompt,
   disabled,
@@ -91,13 +97,20 @@ export function ChatHistory({
   const activeIndex = activeQuestionId
     ? messages.findLastIndex((message) => message.question?.id === activeQuestionId)
     : -1;
-  const [restoredCount, setRestoredCount] = useState(messages.length);
-  if (messages.length < restoredCount) setRestoredCount(messages.length);
+  const initialLast = useRef(messages.at(-1)?.seq ?? 0);
+  const first = messages[0]?.seq;
+  const last = messages.at(-1);
+  const anchor = useRef<{ element: HTMLElement; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const saved = anchor.current;
+    if (saved && saved.element.isConnected && viewport.current)
+      viewport.current.scrollTop += saved.element.getBoundingClientRect().top - saved.top;
+    anchor.current = null;
+  }, [first]);
   useEffect(() => {
     const el = viewport.current;
-    if (el && (following.current || messages.at(-1)?.role === "user"))
-      el.scrollTop = el.scrollHeight;
-  }, [messages, pending]);
+    if (el && (following.current || last?.role === "user")) el.scrollTop = el.scrollHeight;
+  }, [last, pending]);
 
   return (
     <>
@@ -108,6 +121,20 @@ export function ChatHistory({
           following.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
         }}
       >
+        {hasOlder && (
+          <Button
+            size="sm"
+            variant="ghost"
+            isDisabled={loadingOlder}
+            onPress={() => {
+              const element = viewport.current?.querySelector<HTMLElement>(".message");
+              if (element) anchor.current = { element, top: element.getBoundingClientRect().top };
+              void loadOlder();
+            }}
+          >
+            {loadingOlder ? "正在读取…" : "查看更早的消息"}
+          </Button>
+        )}
         {messages.length === 0 ? (
           <section className="welcome">
             <h2>今天想安排什么？</h2>
@@ -124,11 +151,13 @@ export function ChatHistory({
           <div className="thread" role="log" aria-label="对话记录" aria-live="polite">
             {messages.map((message, index) => (
               <div
-                key={index}
+                key={message.seq ?? "sending"}
                 className={`message ${message.role}`}
                 role="group"
                 aria-label={message.role === "user" ? "发出的消息" : "收到的回复"}
-                data-new={index >= restoredCount || undefined}
+                data-new={
+                  message.seq === undefined || message.seq > initialLast.current || undefined
+                }
               >
                 {message.role === "user" ? (
                   <div>{message.content}</div>
