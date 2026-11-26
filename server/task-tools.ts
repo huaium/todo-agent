@@ -1,11 +1,11 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { z } from "zod";
 import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
+import { efforts, priorities } from "../shared/task.ts";
 import { detailsSchema } from "./task-details.ts";
-import { localMinute, pendingReminder } from "../shared/planner.ts";
+import { localMinute, pendingReminder, type PlannerTask } from "../shared/planner.ts";
 import { binMethods, taskMethods, sortLabels, directionLabels } from "../shared/view-sort.ts";
 import type { TaskStore } from "./task-store.ts";
-import type { Task } from "../shared/task.ts";
 import {
   choiceOperation,
   chatSort,
@@ -27,6 +27,25 @@ import { chatWriteReview, requestTask } from "./task-request.ts";
 
 export interface TaskTool extends AgentTool<object, unknown> {
   writes: boolean;
+}
+const pageSize = 20;
+const pageOffset = z.number().int().nonnegative().optional();
+function summary(task: PlannerTask) {
+  const { id, title, done } = task;
+  const result: Record<string, unknown> = { id, title: title.slice(0, 200), done };
+  for (const key of [
+    "listId",
+    "parentId",
+    "dueDate",
+    "dueTime",
+    "priority",
+    "effort",
+    "starred",
+    "repeat",
+    "reminder",
+  ])
+    if (task[key] != null) result[key] = task[key];
+  return result;
 }
 
 export function taskTool<S extends z.ZodObject>(
@@ -63,6 +82,7 @@ export function taskTools(
   preview?: (ids: string[], date: string) => BulkPreview,
   interaction?: { previous?: ChatQuestion; respond(result: QuestionResult): void },
   ui?: { context: ViewContext; apply(choice: z.infer<typeof chatSort>): void },
+  view?: ViewContext,
 ): TaskTool[] {
   async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
     const q = interaction?.previous;
@@ -179,11 +199,31 @@ export function taskTools(
           taskTool(
             "previewReschedule",
             "批量改期必须先预览，用户点击确认后才保存。",
-            z.strictObject({ ids: z.array(id).min(1), date: z.iso.date() }),
-            async ({ ids, date }) => {
-              const result = preview(ids, date);
+            z.strictObject({
+              ids: z.array(id).min(1).optional(),
+              visible: z.boolean().optional(),
+              date: z.iso.date(),
+            }),
+            async ({ ids, visible, date }) => {
+              if (visible && (ids || !view)) return { error: "请选择当前视图或指定任务。" };
+              const pendingVisible = visible
+                ? new Set(
+                    store
+                      .search(
+                        { visibleIds: view!.visibleIds, done: false },
+                        0,
+                        view!.visibleIds.length,
+                      )
+                      .map((task) => task.id),
+                  )
+                : undefined;
+              const targets = pendingVisible
+                ? view!.visibleIds.filter((id) => pendingVisible.has(id))
+                : ids;
+              if (!targets?.length) return { error: "没有待改期的任务。" };
+              const result = preview(targets, date);
               return {
-                reply: `请确认将以下 ${result.titles.length} 条任务改到 ${date}：\n${result.titles.join("\n")}`,
+                reply: `请确认将 ${result.titles.length} 条任务改到 ${date}：\n${result.titles.slice(0, pageSize).join("\n")}${result.titles.length > pageSize ? "\n完整清单见改期预览。" : ""}`,
               };
             },
           ),
@@ -191,25 +231,66 @@ export function taskTools(
       : []),
     taskTool(
       "listTasks",
-      "读取清单。查找 ID 时省略 display，只需向用户展示清单时传 display=true。",
+      "按关键词（标题、备注或标签）、清单、父任务、日期、星标、优先级、工作量或状态搜索。每页最多20条。visible=true 仅查当前视图。查找 ID 时省略 display，用户要求展示清单时传 display=true。更多结果用 nextOffset 翻页。",
       z.strictObject({
         dueDate: z.iso.date().optional(),
         done: z.boolean().optional(),
+        starred: z.boolean().optional(),
+        priority: z.enum(priorities).optional(),
+        effort: z.enum(efforts).optional(),
         parentId: id.optional(),
+        query: z.string().max(200).optional(),
+        listId: id.optional(),
+        id: id.optional(),
+        visible: z.boolean().optional(),
+        offset: pageOffset,
         display: z.boolean().optional(),
       }),
-      async ({ display, ...filters }) => {
-        const tasks: Task[] = await request("GET");
-        const matches = tasks.filter((task) =>
-          Object.entries(filters).every(([field, value]) => task[field] === value),
+      async ({ display, visible, offset = 0, ...filters }) => {
+        if (visible && !view) return { error: "当前请求未指定视图。" };
+        const page = store.search(
+          { ...filters, visibleIds: visible ? view!.visibleIds : undefined },
+          offset,
+          pageSize + 1,
         );
-        if (!display) return matches;
+        const matches = page.slice(0, pageSize).map(summary);
+        const more = page.length > pageSize;
+        if (!display) return more ? { tasks: matches, nextOffset: offset + pageSize } : matches;
         return {
           reply: matches.length
             ? matches
                 .map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`)
-                .join("\n")
+                .join("\n") +
+              (more ? `\n还有更多任务，可从第 ${offset + pageSize + 1} 条继续查看。` : "")
             : "没有符合条件的任务。",
+        };
+      },
+    ),
+    taskTool(
+      "findLists",
+      "按名称关键词查找清单 ID，支持翻页。",
+      z.strictObject({ query: z.string().max(80).optional(), offset: pageOffset }),
+      async ({ query = "", offset = 0 }) => {
+        const lists = store.findLists(query, offset, pageSize + 1);
+        return {
+          lists: lists.slice(0, pageSize),
+          ...(lists.length > pageSize && { nextOffset: offset + pageSize }),
+        };
+      },
+    ),
+    taskTool(
+      "readTaskDetails",
+      "需要查看指定任务的备注、标签或详细信息时使用。长备注用 noteOffset 翻页。",
+      z.strictObject({ id, noteOffset: pageOffset }),
+      async ({ id, noteOffset = 0 }) => {
+        const [task] = store.search({ id }, 0, 1);
+        if (!task) return { error: "任务不存在。" };
+        const notes = task.notes ?? "";
+        return {
+          ...summary(task),
+          tags: task.tags,
+          notes: notes.slice(noteOffset, noteOffset + 1600),
+          ...(notes.length > noteOffset + 1600 && { nextNoteOffset: noteOffset + 1600 }),
         };
       },
     ),
@@ -228,7 +309,7 @@ export function taskTools(
           ? await request("POST", undefined, { title, ...details }, "planner/tasks")
           : await request("POST", undefined, { title });
         if (interaction && task.id && !skipDeadlineQuestion && !task.dueTime) {
-          const question = deadlineQuestion(store.snapshot(), task.id);
+          const question = deadlineQuestion(store.taskContext(task.id), task.id);
           if (question?.kind === "deadline")
             interaction.respond({
               question,
@@ -349,7 +430,7 @@ export function taskTools(
       "将已到点的任务提醒延后十分钟。",
       z.strictObject({ id }),
       async ({ id }) => {
-        const task = store.list().find((t) => t.id === id);
+        const [task] = store.search({ id }, 0, 1);
         const at = task && pendingReminder(task);
         if (!at) return { error: "找不到有效提醒。" };
         const result = await request("POST", id, { at, action: "snooze" }, "planner/reminders");
@@ -360,19 +441,24 @@ export function taskTools(
     taskTool(
       "showTasksDue",
       "直接向用户展示指定日期的到期清单。用于单独的到期查询。默认只看未完成，done 为 null 时包括全部状态。",
-      z.strictObject({ date: z.iso.date(), done: z.boolean().nullable().optional() }),
-      async ({ date, done = false }) => {
-        const tasks: Task[] = await request("GET");
-        const rows = tasks.filter(
-          (task) => task.dueDate === date && (done === null || task.done === done),
-        );
+      z.strictObject({
+        date: z.iso.date(),
+        done: z.boolean().nullable().optional(),
+        offset: pageOffset,
+      }),
+      async ({ date, done = false, offset = 0 }) => {
+        const page = store.search({ dueDate: date, done: done ?? undefined }, offset, pageSize + 1);
+        const rows = page.slice(0, pageSize);
         const scope = done === null ? "" : done ? "已完成" : "未完成";
         const heading = `${date} 到期的${scope}任务`;
         const reply = rows.length
           ? [
               heading + "：",
               ...rows.map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`),
-            ].join("\n")
+            ].join("\n") +
+            (page.length > pageSize
+              ? `\n还有更多任务，可从第 ${offset + pageSize + 1} 条继续查看。`
+              : "")
           : `${heading}：无。`;
         return { reply };
       },

@@ -16,7 +16,23 @@ import {
 } from "../shared/planner.ts";
 
 type Changes = Partial<Pick<PlannerTask, "title" | "done">> & TaskDetails;
+export interface TaskQuery {
+  query?: string;
+  id?: string;
+  listId?: string;
+  parentId?: string;
+  dueDate?: string;
+  done?: boolean;
+  starred?: boolean;
+  priority?: string;
+  effort?: string;
+  visibleIds?: string[];
+}
 export interface TaskStore {
+  search(query: TaskQuery, offset: number, limit: number): PlannerTask[];
+  taskContext(id: string): Planner;
+  findLists(query: string, offset: number, limit: number): Planner["lists"];
+  timeZone(): string;
   list(): PlannerTask[];
   listByCreation(): PlannerTask[];
   snapshot(): Planner;
@@ -232,6 +248,65 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
     return true;
   }
   return {
+    timeZone: zone,
+    taskContext(id) {
+      const tasks: PlannerTask[] = [];
+      const seen = new Set<string>();
+      let task = get(id);
+      while (task && !seen.has(task.id)) {
+        tasks.push(task);
+        seen.add(task.id);
+        task = task.parentId ? get(task.parentId) : undefined;
+      }
+      const row = db.prepare("SELECT id,name FROM lists WHERE id=?").get(tasks[0]?.listId ?? inbox);
+      return {
+        tasks,
+        timeZone: zone(),
+        lists: row ? [{ id: String(row.id), name: String(row.name) }] : [],
+      };
+    },
+    findLists: (query, offset, limit) =>
+      db
+        .prepare(
+          "SELECT id,name FROM lists WHERE instr(lower(name),lower(?))>0 ORDER BY position LIMIT ? OFFSET ?",
+        )
+        .all(query, limit, offset)
+        .map((row) => ({ id: String(row.id), name: String(row.name) })),
+    search(query, offset, limit) {
+      const conditions: string[] = [];
+      const params: (string | number)[] = [];
+      const columns = {
+        id: "id",
+        parentId: "json_extract(payload,'$.parentId')",
+        listId: "coalesce(json_extract(payload,'$.listId'),'inbox')",
+        dueDate: "json_extract(payload,'$.dueDate')",
+        done: "json_extract(payload,'$.done')",
+        starred: "coalesce(json_extract(payload,'$.starred'),0)",
+        priority: "json_extract(payload,'$.priority')",
+        effort: "json_extract(payload,'$.effort')",
+      };
+      for (const key of Object.keys(columns) as (keyof typeof columns)[]) {
+        const value = query[key];
+        if (value === undefined) continue;
+        conditions.push(columns[key] + "=?");
+        params.push(typeof value === "boolean" ? Number(value) : value);
+      }
+      if (query.query) {
+        conditions.push(`(instr(lower(json_extract(payload,'$.title')),lower(?))>0
+          OR instr(lower(json_extract(payload,'$.notes')),lower(?))>0
+          OR EXISTS(SELECT 1 FROM json_each(payload,'$.tags') WHERE instr(lower(value),lower(?))>0))`);
+        params.push(query.query, query.query, query.query);
+      }
+      if (query.visibleIds) {
+        conditions.push("id IN (SELECT value FROM json_each(?))");
+        params.push(JSON.stringify(query.visibleIds));
+      }
+      const where = conditions.length ? " WHERE " + conditions.join(" AND ") : "";
+      return db
+        .prepare("SELECT payload FROM tasks" + where + " ORDER BY position LIMIT ? OFFSET ?")
+        .all(...params, limit, offset)
+        .map((row) => JSON.parse(String(row.payload)));
+    },
     list: () => readTasks(db),
     listByCreation: () =>
       db

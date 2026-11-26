@@ -45,7 +45,6 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     let sortChange: SortChange | undefined;
     let preview: BulkPreview | undefined;
     let interactionResult: QuestionResult | undefined;
-    const { tasks: current, lists, timeZone } = tasks.snapshot();
     const answer = reply
       ? await reply(messages)
       : await agentReply(
@@ -78,9 +77,9 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
                   },
                 }
               : undefined,
+            view,
           ),
-          current,
-          { view, lists, timeZone, question: previous },
+          { view, timeZone: tasks.timeZone(), question: previous },
           signal,
         );
     return {
@@ -194,7 +193,7 @@ export function createApp({ reply, tasks, chat }: AppDependencies) {
     if (
       match &&
       (typeof req.params.id !== "string" ||
-        match !== `"${candidate(tasks.snapshot(), req.params.id)?.version}"`)
+        match !== `"${candidate(tasks.taskContext(req.params.id), req.params.id)?.version}"`)
     )
       return res.status(412).json({ stale: true, error: "任务信息已变化。" });
     next();

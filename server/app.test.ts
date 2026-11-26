@@ -13,6 +13,8 @@ import { openDatabase } from "./database.ts";
 import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
 import { candidate } from "./chat-questions.ts";
+import { workspaceContext } from "./agent.ts";
+import { bulkPreviews } from "./planner.ts";
 
 async function startTestApp(
   t: TestContext,
@@ -206,6 +208,65 @@ test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单",
   assert.equal(store.list()[0].done, true);
   await execute("deleteTask", { id: task.id });
   assert.deepEqual(await execute("listTasks", {}), []);
+});
+
+test("chat context stays compact, search pages exclude notes, and visible bulk previews cover all pages", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const notes = "采购明细".repeat(500);
+  const tasks = Array.from({ length: 27 }, (_, i) => store.create("记录" + i, { notes }));
+  const view = { view: "已筛选", visibleIds: tasks.slice(1).map((t) => t.id), selectedId: null };
+  const compact = JSON.stringify(workspaceContext(view));
+  assert.ok(compact.length < 150 && !compact.includes(tasks[1].id));
+  const bulk = bulkPreviews(store);
+  let token = "";
+  const tools = taskTools(
+    port,
+    store,
+    (ids, date) => {
+      const preview = bulk.preview(ids, date);
+      token = preview.token;
+      return preview;
+    },
+    undefined,
+    undefined,
+    view,
+  );
+  const run = async (name: string, args: object) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test", args)).details;
+  const first = (await run("listTasks", { query: "采购", visible: true })) as {
+    tasks: { id: string; notes?: string }[];
+    nextOffset: number;
+  };
+  assert.deepEqual(
+    first.tasks.map((t) => t.id),
+    view.visibleIds.slice(0, 20),
+  );
+  assert.ok(first.tasks.every((task) => task.notes === undefined));
+  assert.equal(first.nextOffset, 20);
+  const rest = (await run("listTasks", {
+    query: "采购",
+    visible: true,
+    offset: first.nextOffset,
+  })) as { id: string }[];
+  assert.deepEqual(
+    rest.map((t) => t.id),
+    view.visibleIds.slice(20),
+  );
+  const detail = (await run("readTaskDetails", { id: tasks[1].id })) as {
+    notes: string;
+    nextNoteOffset: number;
+  };
+  assert.equal(detail.notes, notes.slice(0, 1600));
+  assert.equal(detail.nextNoteOffset, 1600);
+  await run("previewReschedule", { visible: true, date: "2030-01-01" });
+  bulk.confirm(token);
+  assert.deepEqual(
+    store
+      .list()
+      .filter((t) => t.dueDate === "2030-01-01")
+      .map((t) => t.id),
+    view.visibleIds,
+  );
 });
 
 test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {

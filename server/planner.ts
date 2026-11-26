@@ -18,7 +18,7 @@ export function bulkPreviews(store: TaskStore) {
     { ids: string[]; date: string; snapshot: string; expires: number }
   >();
   function records(ids: string[]) {
-    const tasks = new Map(store.list().map((t) => [t.id, t]));
+    const tasks = new Map(store.search({ visibleIds: ids }, 0, ids.length).map((t) => [t.id, t]));
     return ids.map((id) => {
       const t = tasks.get(id);
       if (!t || t.done) throw new PlannerError("任务已变化，请重新预览。");
