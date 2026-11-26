@@ -10,11 +10,11 @@ export class ChatCapture {
   constructor(source: string) {
     this.source = source;
   }
-  hasPriorityQuote(quote?: string) {
+  hasSourceQuote(quote?: string) {
     return !!quote?.trim() && this.source.includes(quote.trim());
   }
-  record(id: string, skipDeadlineQuestion: boolean) {
-    this.created.set(id, skipDeadlineQuestion);
+  record(id: string, deadlineOptOutQuote?: string) {
+    this.created.set(id, this.hasSourceQuote(deadlineOptOutQuote));
   }
 
   finish(
@@ -50,8 +50,7 @@ export class ChatCapture {
           : summary;
       return { ...result, reply, createdTasks };
     }
-    if (!options.interactive || options.keepReply || result.question || result.preview)
-      return result;
+    if (!options.interactive || result.question || result.preview) return result;
     for (const [id, skip] of this.created) {
       if (skip) break;
       const question = deadlineQuestion(store.taskContext(id), id);
@@ -60,7 +59,11 @@ export class ChatCapture {
         const reply = dueDate
           ? `已记下「${title}」，${dueDate} 到期。要设具体时间吗？`
           : `已把「${title}」加入${list}。什么时候需要完成？`;
-        return { ...result, reply, question };
+        return {
+          ...result,
+          reply: options.keepReply ? result.reply + "\n" + reply : reply,
+          question,
+        };
       }
     }
     return result;

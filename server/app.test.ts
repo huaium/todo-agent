@@ -27,7 +27,7 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
   store.create("已有任务");
   await create.execute("first", {
     title: "可留空",
-    skipDeadlineQuestion: true,
+    deadlineOptOutQuote: "可留空",
     details: { priority: "中" },
   });
   assert.equal(finish().question, undefined);
@@ -52,10 +52,19 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
       ["定时", "2030-04-06", "09:00"],
     ],
   );
-  const single = new ChatCapture("可留空");
-  single.record(result.createdTasks![0].id, false);
+  const single = new ChatCapture("再记一条取快递");
+  const pickup = store.create("取快递");
+  single.record(pickup.id, "可留空");
+  const followup = single.finish(
+    store,
+    { reply: "已添加「取快递」，截止时间留空。" },
+    { interactive: true },
+  );
+  assert.equal(followup.question?.kind, "deadline");
+  assert.ok(followup.question?.kind === "deadline" && followup.question.task.id === pickup.id);
   assert.equal(
-    single.finish(store, { reply: "已记下。" }, { interactive: true }).question?.kind,
+    single.finish(store, { reply: "已记下。" }, { interactive: true, keepReply: true }).question
+      ?.kind,
     "deadline",
   );
 });

@@ -308,20 +308,22 @@ export function taskTools(
           .describe(
             "只在设置 priority 时填写。引用本轮用户对这项任务优先级或紧急程度的原话，单纯给出截止时间不算。",
           ),
-        skipDeadlineQuestion: z
-          .boolean()
+        deadlineOptOutQuote: z
+          .string()
+          .trim()
+          .min(1)
           .optional()
           .describe(
-            "用户希望未说的日期或时间留空、不用追问或仅设日期时传 true。整条消息的要求适用于其中每个任务。",
+            "仅当本轮消息明确要求截止日期或时间留空、不追问或只设日期时，逐字引用该要求。仅提及日期、未提及时间、任务标题和历史消息均不能作为依据。其他情况省略此字段。",
           ),
       }),
-      async ({ title, details, priorityQuote, skipDeadlineQuestion }) => {
-        if (details?.priority && capture && !capture.hasPriorityQuote(priorityQuote))
+      async ({ title, details, priorityQuote, deadlineOptOutQuote }) => {
+        if (details?.priority && capture && !capture.hasSourceQuote(priorityQuote))
           delete details.priority;
         const task = details
           ? await request("POST", undefined, { title, ...details }, "planner/tasks")
           : await request("POST", undefined, { title });
-        if (task.id) capture?.record(task.id, skipDeadlineQuestion === true);
+        if (task.id) capture?.record(task.id, deadlineOptOutQuote);
         return task;
       },
       true,
