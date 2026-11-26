@@ -1,52 +1,28 @@
-import { deepStrictEqual } from "node:assert";
-import { mkdirSync, mkdtempSync, renameSync, rmSync, rmdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
 import {
-  openDatabase,
-  readBinBackup,
-  readConversation,
-  readCreationOrder,
-  readLegacyFiles,
-  readPlannerDocument,
-  transaction,
-} from "./database.ts";
+  closeSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  renameSync,
+  rmSync,
+  rmdirSync,
+} from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { openDatabase } from "./database.ts";
 
 export function exportStorage(directory: string, destination: string) {
-  const db = openDatabase(directory, true);
-  let snapshot;
-  try {
-    const now = Date.now();
-    snapshot = transaction(
-      db,
-      () => ({
-        planner: readPlannerDocument(db),
-        chat: readConversation(db),
-        bin: readBinBackup(db, now),
-        creationOrder: readCreationOrder(db, now),
-      }),
-      "DEFERRED",
-    );
-  } finally {
-    db.close();
-  }
   const target = resolve(destination);
   const staging = mkdtempSync(join(dirname(target), ".planner-export-"));
   try {
-    const options = { flag: "wx", mode: 0o600, flush: true };
-    writeFileSync(
-      join(staging, "tasks.json"),
-      JSON.stringify(snapshot.planner, null, 2) + "\n",
-      options,
-    );
-    writeFileSync(join(staging, "tasks.json.chat.json"), JSON.stringify(snapshot.chat), options);
-    writeFileSync(
-      join(staging, "tasks.order.json"),
-      JSON.stringify(snapshot.creationOrder),
-      options,
-    );
-    if (snapshot.bin.length)
-      writeFileSync(join(staging, "tasks.bin.json"), JSON.stringify(snapshot.bin), options);
-    deepStrictEqual(readLegacyFiles(staging), snapshot);
+    const file = join(staging, "planner.sqlite");
+    closeSync(openSync(file, "wx", 0o600));
+    const db = openDatabase(directory, true);
+    try {
+      db.prepare("VACUUM INTO ?").run(file);
+    } finally {
+      db.close();
+    }
+    openDatabase(staging, true).close();
     // Reserve the new name exclusively, including against another export to the same target.
     mkdirSync(target, { mode: 0o700 });
     try {

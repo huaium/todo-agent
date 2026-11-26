@@ -1,24 +1,19 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createTaskStore } from "./task-store.ts";
-import { importLegacyDatabase, openDatabase } from "./database.ts";
+import { openDatabase } from "./database.ts";
 import { nextDate, localMinute } from "../shared/planner.ts";
 import { bulkPreviews } from "./planner.ts";
-async function fixture(t: TestContext, legacy?: unknown) {
+async function fixture(t: TestContext) {
   const dir = await mkdtemp(join(tmpdir(), "planner-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const file = join(dir, "tasks.json");
-  if (legacy) {
-    await writeFile(file, JSON.stringify(legacy));
-    importLegacyDatabase(dir);
-  }
   const db = openDatabase(dir);
   t.after(() => db.close());
   const store = createTaskStore(db, () => new Date("2026-01-30T10:00:00Z"));
-  return { file, store };
+  return { store };
 }
 test("manual ordering preserves hidden slots and rejects stale or invalid moves atomically", async (t) => {
   const { store } = await fixture(t);
@@ -59,20 +54,17 @@ test("relative moves promote a child, preserve its descendants, and reject cycle
     [child.id, meeting.id],
   );
 });
-test("旧清单原子迁移，移动父任务时同步移动所有子项，删除清单保留任务", async (t) => {
-  const old = { id: "legacy", done: false, title: "报告", extension: 42 };
-  const { file, store } = await fixture(t, [old]);
-  assert.deepEqual(store.list(), [old]);
-  assert.equal(await readFile(file, "utf8"), JSON.stringify([old]));
+test("移动父任务时同步移动所有子项，删除清单保留任务", async (t) => {
+  const { store } = await fixture(t);
+  const parent = store.create("报告");
   const list = store.editList(null, "工作");
-  const child = store.create("核对", { parentId: "legacy" });
+  const child = store.create("核对", { parentId: parent.id });
   const grandchild = store.create("数据", { parentId: child.id });
-  store.update("legacy", { listId: list });
+  store.update(parent.id, { listId: list });
   assert.ok(store.list().every((t) => t.listId === list));
-  assert.throws(() => store.update("legacy", { parentId: grandchild.id }));
+  assert.throws(() => store.update(parent.id, { parentId: grandchild.id }));
   store.editList(list, null);
   assert.equal(store.list().length, 3);
-  assert.equal(store.list()[0].extension, 42);
   assert.ok(store.list().every((t) => !t.listId));
 });
 test("moving a completed task beside a pending subtask preserves both hierarchy and order", async (t) => {

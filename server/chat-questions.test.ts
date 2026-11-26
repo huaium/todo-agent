@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AddressInfo } from "node:net";
@@ -10,7 +10,7 @@ import { createApp } from "./app.ts";
 import { choiceQuestion, deadlineQuestion } from "./chat-questions.ts";
 import { openConversation } from "./conversation.ts";
 import { createTaskStore, type TaskStore } from "./task-store.ts";
-import { importLegacyDatabase, openDatabase } from "./database.ts";
+import { openDatabase } from "./database.ts";
 import { choiceDescription } from "../shared/task-choice.ts";
 
 test("duplicate subtask choices show parent paths and refresh after a parent rename", async (t) => {
@@ -177,7 +177,7 @@ test("跳过具体时间保留已保存的日期", async (t) => {
   assert.equal((await read()).messages[1].content, "仅设日期");
 });
 
-test("imported questions retain legacy task hashes and stale candidates stay stale", async (t) => {
+test("reopening SQLite preserves question versions and rejects stale candidates", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "chat-question-import-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const task = {
@@ -188,28 +188,19 @@ test("imported questions retain legacy task hashes and stale candidates stay sta
     custom: { level: 2 },
     dueTime: null,
   };
-  const planner = {
-    version: 1 as const,
-    tasks: [task],
-    lists: [{ id: "inbox", name: "收件箱" }],
-    timeZone: "Asia/Singapore",
-    series: {},
-  };
-  const question = deadlineQuestion(planner, task.id)!;
-  const legacy = {
-    revision: 17,
-    pending: false,
-    messages: [{ role: "assistant", content: "什么时候完成？", question }],
-  };
-  await writeFile(join(dir, "tasks.json"), JSON.stringify(planner));
-  await writeFile(join(dir, "tasks.json.chat.json"), JSON.stringify(legacy));
-  importLegacyDatabase(dir);
+  const initial = openDatabase(dir);
+  initial.prepare("INSERT INTO tasks(id,payload) VALUES(?,?)").run(task.id, JSON.stringify(task));
+  const question = deadlineQuestion(createTaskStore(initial).snapshot(), task.id)!;
+  const conversation = openConversation(initial);
+  conversation.appendReply(0, false, { reply: "什么时候完成？", question });
+  const saved = conversation.read();
+  initial.close();
   const db = openDatabase(dir);
   t.after(() => db.close());
   const store = createTaskStore(db);
   const chat = openConversation(db);
   chat.recover();
-  assert.deepEqual(chat.read(), legacy);
+  assert.deepEqual(chat.read(), saved);
   const server = createApp({ tasks: store, chat }).listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
   await once(server, "listening");
@@ -230,7 +221,7 @@ test("imported questions retain legacy task hashes and stale candidates stay sta
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       action: "answer",
-      revision: 17,
+      revision: saved.revision,
       questionId: question.id,
       answer: { kind: "deadline", date: "2030-04-05" },
     }),

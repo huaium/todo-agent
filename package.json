@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "storage:import": "node server/storage-import.ts",
     "storage:export": "node server/storage-export.ts",
     "dev": "node --watch --env-file-if-exists=.env server/index.ts",
     "build": "esbuild chat=src/main.tsx initial-theme=src/initial-theme.ts --bundle --minify --outdir=dist && npm run build:speech && tailwindcss -i src/theme.css -o dist/theme.css --minify",

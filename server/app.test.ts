@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,7 +9,7 @@ import { test, type TestContext } from "node:test";
 import type { ChatMessage } from "../shared/chat.ts";
 import { createApp } from "./app.ts";
 import { createTaskStore } from "./task-store.ts";
-import { importLegacyDatabase, openDatabase } from "./database.ts";
+import { openDatabase } from "./database.ts";
 import { openConversation } from "./conversation.ts";
 import { taskTools } from "./task-tools.ts";
 import { candidate } from "./chat-questions.ts";
@@ -100,15 +100,10 @@ test("批量回执只包含本轮保存的任务，保留日期精度和单条�
 async function startTestApp(
   t: TestContext,
   reply?: (messages: ChatMessage[]) => Promise<string>,
-  legacy?: unknown,
   now?: () => Date,
 ) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  if (legacy) {
-    await writeFile(join(directory, "tasks.json"), JSON.stringify(legacy));
-    importLegacyDatabase(directory);
-  }
   const db = openDatabase(directory);
   t.after(() => db.close());
   const store = createTaskStore(db, now);
@@ -132,7 +127,7 @@ async function startTestApp(
     };
   }
 
-  return { request, store, port, directory, chat };
+  return { request, store, port, directory, chat, db };
 }
 
 test("批量删除只将确认时选中的已完成任务移入回收站，允许重试和恢复", async (t) => {
@@ -299,7 +294,7 @@ test("permanent deletion removes only the selected bin entry", async (t) => {
 
 test("清空回收站只永久删除确认过的记录，重试不影响后来删除的任务", async (t) => {
   let time = Date.now();
-  const { store, request } = await startTestApp(t, undefined, undefined, () => new Date(time));
+  const { store, request } = await startTestApp(t, undefined, () => new Date(time));
   const url = "/api/planner/bin";
   const kept = store.create("保留");
   const [a, b, restored, archivedAgain, later] = ["甲", "乙", "丙", "丁", "戊"].map((title) =>
@@ -419,10 +414,12 @@ test("chat context stays compact, search pages exclude notes, and visible bulk p
   );
 });
 
-test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {
+test("更新数据库中的任务时保留其他任务和扩展字段", async (t) => {
   const first = { id: "a", title: "买牛奶", done: false, priority: 1 };
   const second = { id: "b", title: "取快递", done: false };
-  const { request, store } = await startTestApp(t, undefined, [first, second]);
+  const { request, store, db } = await startTestApp(t);
+  const insert = db.prepare("INSERT INTO tasks(id,payload) VALUES(?,?)");
+  for (const task of [first, second]) insert.run(task.id, JSON.stringify(task));
 
   assert.equal((await request("PATCH", "/api/tasks/a", { done: true })).status, 200);
   assert.deepEqual(store.list(), [{ ...first, done: true }, second]);

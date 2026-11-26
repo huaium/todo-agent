@@ -3,18 +3,13 @@ import { mkdtempSync, rmSync, statSync, mkdirSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import {
-  importLegacyDatabase,
-  openDatabase,
-  readConversation,
-  readPlannerDocument,
-} from "./database.ts";
+import { openDatabase, readConversation, readPlanner } from "./database.ts";
 import { createTaskStore } from "./task-store.ts";
 import { openConversation } from "./conversation.ts";
 import { deadlineQuestion } from "./chat-questions.ts";
 import { exportStorage } from "./storage-export.ts";
 
-test("rollback export preserves post-cutover data and refuses an existing destination", (t) => {
+test("SQLite backup reopens with planner data and chat intact and refuses an existing destination", (t) => {
   const dir = mkdtempSync(join(tmpdir(), "rollback-export-"));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   const target = join(dir, "rollback");
@@ -43,20 +38,20 @@ test("rollback export preserves post-cutover data and refuses an existing destin
     reply: "安排在哪一天？",
     question: deadlineQuestion(tasks.snapshot(), parent.id),
   });
-  const planner = readPlannerDocument(db),
+  const planner = readPlanner(db),
     history = chat.read();
-  db.close();
+  t.after(() => db.close());
   const existing = join(dir, "existing");
   mkdirSync(existing);
   assert.throws(() => exportStorage(dir, existing), /EEXIST/);
   assert.deepEqual(readdirSync(existing), []);
   exportStorage(dir, target);
-  for (const file of ["tasks.json", "tasks.json.chat.json"])
-    assert.equal(statSync(join(target, file)).mode & 0o777, 0o600);
+  assert.deepEqual(readdirSync(target), ["planner.sqlite"]);
+  assert.equal(statSync(join(target, "planner.sqlite")).mode & 0o777, 0o600);
+  tasks.create("备份后新增");
   assert.throws(() => exportStorage(dir, target), /EEXIST/);
-  importLegacyDatabase(target);
   const imported = openDatabase(target);
-  assert.deepEqual(readPlannerDocument(imported), planner);
+  assert.deepEqual(readPlanner(imported), planner);
   assert.deepEqual(readConversation(imported), history);
   const restored = createTaskStore(imported);
   assert.deepEqual(restored.bin(), [deleted]);
