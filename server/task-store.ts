@@ -169,21 +169,15 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
     if (t.dueTime && !t.dueDate) fail("请先设置截止日期。");
     if (
       delta.dueDate !== undefined &&
+      before.dueDate &&
+      t.dueDate &&
       before.dueDate !== t.dueDate &&
       delta.reminder === undefined &&
       before.reminder
     ) {
-      t.reminder =
-        t.dueDate && before.dueDate
-          ? shiftedReminder(before.reminder, before.dueDate, t.dueDate)
-          : null;
+      t.reminder = shiftedReminder(before.reminder, before.dueDate, t.dueDate);
     }
-    if (
-      before.reminder !== t.reminder ||
-      delta.done !== undefined ||
-      before.dueDate !== t.dueDate ||
-      before.dueTime !== t.dueTime
-    ) {
+    if (before.reminder !== t.reminder || before.done !== t.done) {
       delete t.notifiedAt;
       delete t.snoozeUntil;
     }
@@ -197,6 +191,13 @@ export function createTaskStore(db: DatabaseSync, now = () => new Date()): TaskS
     delta: Changes,
     scope: "one" | "future",
   ) {
+    if (
+      before.seriesId &&
+      scope === "one" &&
+      delta.repeat !== undefined &&
+      (delta.repeat !== before.repeat || delta.repeat === null)
+    )
+      fail("修改或取消重复规则时，请选择本次及后续任务。");
     const hasSchedule = t.dueDate || (before.seriesId && scope === "one" && t.occurrenceDate);
     if (t.repeat && (!hasSchedule || t.parentId || byParent.get(t.id)))
       fail("重复任务需要截止日期，且必须是独立任务。");

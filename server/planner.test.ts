@@ -130,6 +130,32 @@ test("周期完成可重试、保持月末锚点及提醒偏移，仅本次的�
   assert.equal(nextDate("2028-02-29", "yearly", "2031-02-28"), "2032-02-29");
   assert.equal(nextDate("2020-01-03", "weekly", "2026-01-30"), "2026-02-06");
 });
+test("adding and clearing a deadline preserves an independent reminder and its delivery state", async (t) => {
+  const { store } = await fixture(t);
+  const reminder = "2026-01-30T08:00";
+  const { id } = store.create("采购", { reminder });
+  assert.ok(store.remind(id, reminder, "claim"));
+  for (const dueDate of ["2026-01-31", null]) {
+    const updated = store.update(id, { dueDate })!;
+    assert.equal(updated.reminder, reminder);
+    assert.equal(updated.notifiedAt, reminder);
+  }
+  assert.equal(store.update(id, { reminder: null })!.reminder, null);
+});
+test("changing a repeat rule requires future scope and cancellation stops the next occurrence", async (t) => {
+  const { store } = await fixture(t);
+  const task = store.create("例会", { dueDate: "2026-01-31", repeat: "daily" });
+  assert.throws(() => store.update(task.id, { repeat: null }), /后续/);
+  assert.throws(() => store.update(task.id, { repeat: "weekly" }, "one"), /后续/);
+  assert.deepEqual(store.list(), [task]);
+  store.update(task.id, { repeat: "weekly" }, "future");
+  store.update(task.id, { done: true });
+  const next = store.list()[1];
+  assert.equal(next.dueDate, "2026-02-07");
+  store.update(next.id, { repeat: null }, "future");
+  store.update(next.id, { done: true });
+  assert.equal(store.list().length, 2);
+});
 test("提醒只投递一次，稍后提醒跨标签页共享，过期批量预览不产生部分写入", async (t) => {
   const { store } = await fixture(t);
   store.initializeZone("Asia/Singapore");

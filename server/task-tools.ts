@@ -408,7 +408,7 @@ export function taskTools(
     ),
     taskTool(
       "setTaskDetails",
-      "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。批量改期使用 previewReschedule。",
+      "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。修改或取消已有重复规则须传 scope=future，取消时传 repeat=null。批量改期使用 previewReschedule。",
       z.strictObject({ id, changes: detailsSchema, scope: z.enum(["one", "future"]).optional() }),
       ({ id, changes, scope }) => request("PATCH", id, { changes, scope }, "planner/tasks"),
       true,
