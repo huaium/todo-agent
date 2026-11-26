@@ -1,0 +1,589 @@
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import { z } from "zod";
+import { createTaskSchema, updateTaskSchema } from "./tasks.ts";
+import { efforts, priorities } from "../shared/task.ts";
+import { detailsSchema } from "./task-details.ts";
+import { localMinute, pendingReminder, type PlannerTask } from "../shared/planner.ts";
+import { binMethods, taskMethods, sortLabels, directionLabels } from "../shared/view-sort.ts";
+import type { TaskStore } from "./task-store.ts";
+import {
+  choiceOperation,
+  chatSort,
+  type ViewContext,
+  type SortChange,
+  questionAnswer,
+  type ChatQuestion,
+  type BulkPreview,
+} from "../shared/chat.ts";
+import {
+  choiceQuestion,
+  candidate,
+  refreshQuestion,
+  resolveQuestion,
+  type QuestionResult,
+} from "./chat-questions.ts";
+import { chatWriteReview, requestTask } from "./task-request.ts";
+import type { ChatCapture } from "./chat-capture.ts";
+import { cardTask, changedCard } from "./chat-card.ts";
+
+export interface TaskTool extends AgentTool<object, unknown> {
+  writes: boolean;
+}
+const pageSize = 20;
+const pageOffset = z.number().int().nonnegative().optional();
+function summary(task: PlannerTask) {
+  const { id, title, done } = task;
+  const result: Record<string, unknown> = { id, title: title.slice(0, 200), done };
+  for (const key of [
+    "listId",
+    "parentId",
+    "dueDate",
+    "dueTime",
+    "priority",
+    "effort",
+    "starred",
+    "repeat",
+    "reminder",
+  ])
+    if (task[key] != null) result[key] = task[key];
+  return result;
+}
+
+export function taskTool<S extends z.ZodObject>(
+  name: string,
+  description: string,
+  schema: S,
+  run: (args: z.output<S>) => Promise<unknown>,
+  writes = false,
+): TaskTool {
+  const { $schema: _dialect, ...parameters } = z.toJSONSchema(schema);
+  return {
+    writes,
+    name,
+    label: description,
+    description,
+    parameters,
+    async execute(_callId, args) {
+      const result = schema.safeParse(args);
+      const details = result.success
+        ? await run(result.data)
+        : { error: result.error.issues.map(({ path, message }) => ({ path, message })) };
+      return {
+        content: [{ type: "text", text: JSON.stringify(details) }],
+        details,
+        isError: details !== null && typeof details === "object" && "error" in details,
+      };
+    },
+  };
+}
+
+export function taskTools(
+  port: number,
+  store: TaskStore,
+  preview?: (ids: string[], date: string) => BulkPreview,
+  interaction?: { previous?: ChatQuestion; respond(result: QuestionResult): void },
+  ui?: { context: ViewContext; apply(choice: z.infer<typeof chatSort>): void },
+  view?: ViewContext,
+  capture?: ChatCapture,
+  pendingPreview?: { read(): BulkPreview | undefined; cancel(): void },
+): TaskTool[] {
+  const writtenVersions = new Map<string, string | null>();
+  function recordVersion(id: string, version: string | null) {
+    writtenVersions.set(id, version);
+  }
+  async function request(method: string, id?: string, body?: unknown, resource = "tasks") {
+    const q = interaction?.previous;
+    if (
+      !q ||
+      !id ||
+      !["tasks", "planner/tasks"].includes(resource) ||
+      !["PATCH", "DELETE"].includes(method)
+    )
+      return requestTask(port, method, id, body, resource);
+    // A free-text turn can also invoke a regular task tool. Check the same snapshots as a click.
+    const choices = q.kind === "deadline" ? [q.task] : q.tasks;
+    const target = choices.find((t) => t.id === id);
+    if (!target) return requestTask(port, method, id, body, resource);
+    if (writtenVersions.has(id)) {
+      const version = writtenVersions.get(id);
+      if (!version) return { error: "该任务已在本轮删除。" };
+      return requestTask(port, method, id, body, resource, version, recordVersion);
+    }
+    const snapshot = store.snapshot();
+    if (
+      choices.every(
+        (t) =>
+          (candidate(snapshot, t.id)?.version ?? null) ===
+          (writtenVersions.has(t.id) ? writtenVersions.get(t.id) : t.version),
+      )
+    ) {
+      const result = await requestTask(
+        port,
+        method,
+        id,
+        body,
+        resource,
+        target.version,
+        recordVersion,
+      );
+      if (!result.stale) return result;
+    }
+    const updated = refreshQuestion(store, q);
+    interaction!.respond(updated);
+    return { error: updated.reply };
+  }
+  const id = z.string().min(1).describe("从任务清单读取的任务 ID");
+  async function changeTask(id: string, changes?: object, scope?: string, resource = "tasks") {
+    const [task] = capture ? store.search({ id }, 0, 1) : [];
+    const before = task && cardTask(store, task);
+    const body = resource === "tasks" ? changes : { changes, scope };
+    const result = await request(changes ? "PATCH" : "DELETE", id, body, resource);
+    if (before && (result.id || result.deleted))
+      capture!.add(changedCard(store, before, result.deleted ? undefined : result, changes ?? {}));
+    return result;
+  }
+  const sorting = ui?.context.sorting;
+  let answeredPrevious = false;
+  return [
+    ...(pendingPreview
+      ? [
+          taskTool(
+            "readReschedulePreview",
+            "查看待确认改期预览中的任务。query 按标题查找，可用 offset 翻页。",
+            z.strictObject({ query: z.string().max(200).optional(), offset: pageOffset }),
+            async ({ query, offset = 0 }) => {
+              const current = pendingPreview.read();
+              if (!current) return { error: "没有有效的改期预览。" };
+              const matches = query
+                ? current.titles.filter((title) =>
+                    title.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+                  )
+                : current.titles;
+              return {
+                date: current.date,
+                total: current.titles.length,
+                matched: matches.length,
+                titles: matches.slice(offset, offset + pageSize),
+                ...(offset + pageSize < matches.length && { nextOffset: offset + pageSize }),
+              };
+            },
+          ),
+          taskTool(
+            "cancelReschedulePreview",
+            "仅在用户明确要求取消待确认的改期预览时调用。",
+            z.strictObject({}),
+            async () => {
+              if (!pendingPreview.read()) return { error: "没有有效的改期预览。" };
+              pendingPreview.cancel();
+              return { reply: "已取消改期预览。" };
+            },
+          ),
+        ]
+      : []),
+    ...(ui && sorting
+      ? [
+          taskTool(
+            "setViewSort",
+            "更改当前界面的排序方式。manual 手动、due 截止、priority 优先级、effort 工作量、title 标题、deleted 删除时间。reverse=false 表示最早到期、高优先、小工作量、标题正序或最近删除。",
+            chatSort,
+            async (choice) => {
+              const methods: readonly SortChange["method"][] =
+                sorting.viewKey === "bin" ? binMethods : taskMethods;
+              if (
+                !methods.includes(choice.method) ||
+                (choice.method === "manual" && choice.reverse)
+              )
+                return { error: "此视图不支持该排序。" };
+              const label = [
+                sortLabels[choice.method],
+                directionLabels[choice.method][Number(choice.reverse)],
+              ]
+                .filter(Boolean)
+                .join(" · ");
+              await chatWriteReview.getStore()?.({
+                resource: "view/sort",
+                method: "SET",
+                body: { label, view: ui.context.view },
+              });
+              ui.apply(choice);
+              return { reply: `已将当前视图设为${label}。` };
+            },
+            true,
+          ),
+        ]
+      : []),
+    ...(interaction
+      ? [
+          taskTool(
+            "askTaskChoice",
+            "当单项修改或删除有多个可能目标时，提供候选任务 ID 和用户要求的操作，等待用户选择。",
+            z.strictObject({ ids: z.array(id).min(2), operation: choiceOperation }),
+            async ({ ids, operation }) => {
+              const question = choiceQuestion(store.snapshot(), ids, operation);
+              if (!question) return { error: "没有可选择的任务。" };
+              const previous = interaction.previous;
+              if (
+                previous?.kind === "choice" &&
+                question.kind === "choice" &&
+                JSON.stringify(previous.operation) === JSON.stringify(operation) &&
+                question.tasks.length === previous.tasks.length &&
+                question.tasks.every((task) => previous.tasks.some((t) => t.id === task.id))
+              ) {
+                if (
+                  question.tasks.some(
+                    (task) => !previous.tasks.some((t) => t.version === task.version),
+                  )
+                ) {
+                  const refreshed = refreshQuestion(store, previous);
+                  interaction.respond(refreshed);
+                  return refreshed;
+                }
+                interaction.respond({ reply: "你指的是哪一条？", question: previous });
+                return {
+                  error:
+                    "这些候选项已向用户展示。请根据本轮给出的清单名、日期或标题区分候选项，调用 answerQuestion 传入匹配的任务 ID。如果仍无法区分，请说明缺少的信息。",
+                };
+              }
+              const result = { reply: "你指的是哪一条？", question };
+              interaction.respond(result);
+              return result;
+            },
+          ),
+        ]
+      : []),
+    ...(interaction?.previous
+      ? [
+          taskTool(
+            "answerQuestion",
+            "用用户本轮的自然语言回答上轮问题。若用户按清单或日期指明了哪一条，传入 {answer:{kind:'choose',taskId:匹配的候选ID}}，将执行已记录的操作。截止日期和可选时间用 deadline；跳过用 dismiss。",
+            z.strictObject({ answer: questionAnswer }),
+            async ({ answer }) => {
+              if (answeredPrevious) return { error: "本轮已处理该问题，请继续处理其余请求。" };
+              const result = await resolveQuestion(
+                store,
+                port,
+                interaction.previous!,
+                answer,
+                recordVersion,
+              );
+              answeredPrevious = true;
+              interaction.respond(result);
+              return result;
+            },
+          ),
+        ]
+      : []),
+    ...(preview
+      ? [
+          taskTool(
+            "previewReschedule",
+            "批量改期必须先预览，用户点击确认后才保存。",
+            z.strictObject({
+              ids: z.array(id).min(1).optional(),
+              visible: z.boolean().optional(),
+              date: z.iso.date(),
+            }),
+            async ({ ids, visible, date }) => {
+              if (visible && (ids || !view)) return { error: "请选择当前视图或指定任务。" };
+              const pendingVisible = visible
+                ? new Set(
+                    store
+                      .search(
+                        { visibleIds: view!.visibleIds, done: false },
+                        0,
+                        view!.visibleIds.length,
+                      )
+                      .map((task) => task.id),
+                  )
+                : undefined;
+              const targets = pendingVisible
+                ? view!.visibleIds.filter((id) => pendingVisible.has(id))
+                : ids;
+              if (!targets?.length) return { error: "没有待改期的任务。" };
+              const result = preview(targets, date);
+              return {
+                reply: `请确认将 ${result.titles.length} 条任务改到 ${date}：\n${result.titles.slice(0, pageSize).join("\n")}${result.titles.length > pageSize ? "\n完整清单见改期预览。" : ""}`,
+              };
+            },
+          ),
+        ]
+      : []),
+    taskTool(
+      "listTasks",
+      "按关键词（标题、备注或标签）、清单、父任务、日期、星标、优先级、工作量或状态搜索。每页最多20条。visible=true 仅查当前视图。查找 ID 时省略 display，用户要求展示清单时传 display=true。更多结果用 nextOffset 翻页。",
+      z.strictObject({
+        dueDate: z.iso.date().optional(),
+        done: z.boolean().optional(),
+        starred: z.boolean().optional(),
+        priority: z.enum(priorities).optional(),
+        effort: z.enum(efforts).optional(),
+        parentId: id.optional(),
+        query: z.string().max(200).optional(),
+        listId: id.optional(),
+        id: id.optional(),
+        visible: z.boolean().optional(),
+        offset: pageOffset,
+        display: z.boolean().optional(),
+      }),
+      async ({ display, visible, offset = 0, ...filters }) => {
+        if (visible && !view) return { error: "当前请求未指定视图。" };
+        const page = store.search(
+          { ...filters, visibleIds: visible ? view!.visibleIds : undefined },
+          offset,
+          pageSize + 1,
+        );
+        const matches = page.slice(0, pageSize).map(summary);
+        const more = page.length > pageSize;
+        if (!display) return more ? { tasks: matches, nextOffset: offset + pageSize } : matches;
+        if (matches.length)
+          capture?.add({
+            kind: "query",
+            heading: "查询结果",
+            tasks: page.slice(0, pageSize).map((t) => cardTask(store, t, filters)),
+            more,
+          });
+        return {
+          reply: matches.length
+            ? matches
+                .map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`)
+                .join("\n") +
+              (more ? `\n还有更多任务，可从第 ${offset + pageSize + 1} 条继续查看。` : "")
+            : "没有符合条件的任务。",
+        };
+      },
+    ),
+    taskTool(
+      "findLists",
+      "按名称关键词查找清单 ID，支持翻页。",
+      z.strictObject({ query: z.string().max(80).optional(), offset: pageOffset }),
+      async ({ query = "", offset = 0 }) => {
+        const lists = store.findLists(query, offset, pageSize + 1);
+        return {
+          lists: lists.slice(0, pageSize),
+          ...(lists.length > pageSize && { nextOffset: offset + pageSize }),
+        };
+      },
+    ),
+    taskTool(
+      "readTaskDetails",
+      "需要查看指定任务的备注、标签或详细信息时使用。长备注用 noteOffset 翻页。",
+      z.strictObject({ id, noteOffset: pageOffset }),
+      async ({ id, noteOffset = 0 }) => {
+        const [task] = store.search({ id }, 0, 1);
+        if (!task) return { error: "任务不存在。" };
+        const notes = task.notes ?? "";
+        return {
+          ...summary(task),
+          tags: task.tags,
+          notes: notes.slice(noteOffset, noteOffset + 1600),
+          ...(notes.length > noteOffset + 1600 && { nextNoteOffset: noteOffset + 1600 }),
+        };
+      },
+    ),
+    taskTool(
+      "createTask",
+      "创建未完成任务。若已知截止日期、重复、提醒、清单或父任务，用 details 一起保存。",
+      createTaskSchema.extend({
+        details: detailsSchema.optional(),
+        priorityQuote: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "只在设置 priority 时填写。引用本轮用户对这项任务优先级或紧急程度的原话，单纯给出截止时间不算。",
+          ),
+        deadlineOptOutQuote: z
+          .string()
+          .trim()
+          .min(1)
+          .optional()
+          .describe(
+            "仅当本轮消息明确要求截止日期或时间留空、不追问或只设日期时，逐字引用该要求。仅提及日期、未提及时间、任务标题和历史消息均不能作为依据。其他情况省略此字段。",
+          ),
+      }),
+      async ({ title, details, priorityQuote, deadlineOptOutQuote }) => {
+        if (details?.priority && capture && !capture.hasSourceQuote(priorityQuote))
+          delete details.priority;
+        const task = details
+          ? await request("POST", undefined, { title, ...details }, "planner/tasks")
+          : await request("POST", undefined, { title });
+        if (task.id) capture?.record(task.id, deadlineOptOutQuote, details);
+        return task;
+      },
+      true,
+    ),
+    taskTool(
+      "moveTaskRelative",
+      "调整任务行顺序。将 id 移到 anchorId 的正上方(before)或正下方(after)，并使其与参照任务同级。移动到父任务上方会自动提升一级；无需先修改 parentId。",
+      z.strictObject({ id, anchorId: id, side: z.enum(["before", "after"]) }),
+      async (move) => {
+        if (sorting?.viewKey === "bin")
+          return { error: "回收站按删除时间或标题排序，请打开任务清单后移动。" };
+        const snapshot = store.snapshot();
+        const source = snapshot.tasks.find((t) => t.id === move.id),
+          anchor = snapshot.tasks.find((t) => t.id === move.anchorId);
+        if (!source || !anchor) return { error: "移动项或参照项已不存在。" };
+        if (
+          sorting &&
+          !anchor.parentId &&
+          sorting.groupView !== "other" &&
+          source.dueDate &&
+          anchor.dueDate
+        ) {
+          const today = localMinute(
+            new Date(),
+            snapshot.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
+          ).slice(0, 10);
+          const different =
+            sorting.groupView === "upcoming"
+              ? source.dueDate !== anchor.dueDate
+              : source.dueDate < today !== anchor.dueDate < today;
+          if (
+            different &&
+            ui?.context.visibleIds.includes(source.id) &&
+            ui.context.visibleIds.includes(anchor.id)
+          )
+            return {
+              error: "这两条任务在不同日期分组中。请在全部视图调整顺序，或明确要修改的截止日期。",
+            };
+        }
+        const expected = {
+          source: candidate(snapshot, source.id)!.version,
+          anchor: candidate(snapshot, anchor.id)!.version,
+        };
+        const result = await requestTask(
+          port,
+          "POST",
+          undefined,
+          { ...move, expected },
+          "planner/tasks/order",
+        );
+        if (result.error) return result;
+        ui?.apply({ method: "manual", reverse: false });
+        if (capture) {
+          const parentChanged = (source.parentId ?? null) !== (result.parentId ?? null);
+          const row = cardTask(store, result, parentChanged ? { parentId: result.parentId } : {});
+          row.details = [
+            `移至「${anchor.title}」${move.side === "before" ? "上方" : "下方"}`,
+            ...(row.details ?? []),
+          ];
+          if (ui && ![source.id, anchor.id].every((id) => ui.context.visibleIds.includes(id)))
+            row.details.push("部分任务在当前筛选范围之外");
+          capture.add({ kind: "updated", tasks: [row] });
+        }
+        return {
+          moved: result.id,
+          anchor: anchor.title,
+          side: move.side,
+          parentChanged: (source.parentId ?? null) !== (result.parentId ?? null),
+          parentId: result.parentId ?? null,
+          ...(ui && {
+            sort: "manual",
+            bothInFilter:
+              ui.context.visibleIds.includes(source.id) &&
+              ui.context.visibleIds.includes(anchor.id),
+          }),
+        };
+      },
+      true,
+    ),
+    taskTool(
+      "updateTask",
+      "修改指定任务的标题或完成状态",
+      z.strictObject({ id, changes: updateTaskSchema }),
+      ({ id, changes }) => changeTask(id, changes),
+      true,
+    ),
+    taskTool(
+      "deleteTask",
+      "把用户指定的单条任务移入回收站，可在 30 天内恢复。",
+      z.strictObject({ id }),
+      ({ id }) => changeTask(id),
+      true,
+    ),
+    taskTool(
+      "setTaskDetails",
+      "设置单条任务的清单、标签、星标、备注、优先级、工作量、父任务、截止日期、时间、提醒或重复频率。reminder 是规划时区的 YYYY-MM-DDTHH:mm。每周重复用 weekly。修改或取消已有重复规则须传 scope=future，取消时传 repeat=null。批量改期使用 previewReschedule。",
+      z.strictObject({ id, changes: detailsSchema, scope: z.enum(["one", "future"]).optional() }),
+      ({ id, changes, scope }) => changeTask(id, changes, scope, "planner/tasks"),
+      true,
+    ),
+    taskTool(
+      "manageList",
+      "创建、重命名或删除个人清单。删除清单后任务回到收件箱。",
+      z.strictObject({
+        action: z.enum(["create", "rename", "delete"]),
+        id: id.optional(),
+        name: z.string().trim().min(1).max(80).optional(),
+      }),
+      async ({ action, id, name }) => {
+        if (action === "create" && name)
+          return request("POST", undefined, { name }, "planner/lists");
+        if (action === "rename" && id && name)
+          return request("PATCH", id, { name }, "planner/lists");
+        if (action === "delete" && id) return request("DELETE", id, undefined, "planner/lists");
+        return { error: "请提供所需的清单 ID 或名称。" };
+      },
+      true,
+    ),
+    taskTool(
+      "snoozeReminder",
+      "将已到点的任务提醒延后十分钟。",
+      z.strictObject({ id }),
+      async ({ id }) => {
+        const [task] = store.search({ id }, 0, 1);
+        const at = task && pendingReminder(task);
+        if (!at) return { error: "找不到有效提醒。" };
+        const result = await request("POST", id, { at, action: "snooze" }, "planner/reminders");
+        if (result.applied && capture) {
+          const [saved] = store.search({ id }, 0, 1);
+          if (saved?.snoozeUntil)
+            capture.add({
+              kind: "updated",
+              tasks: [
+                {
+                  ...cardTask(store, saved),
+                  details: ["稍后提醒 · " + saved.snoozeUntil.replace("T", " ")],
+                },
+              ],
+            });
+        }
+        return result.applied ? { snoozed: id } : { error: "提醒已更改或尚未到点。" };
+      },
+      true,
+    ),
+    taskTool(
+      "showTasksDue",
+      "直接向用户展示指定日期的到期清单。用于单独的到期查询。默认只看未完成，done 为 null 时包括全部状态。",
+      z.strictObject({
+        date: z.iso.date(),
+        done: z.boolean().nullable().optional(),
+        offset: pageOffset,
+      }),
+      async ({ date, done = false, offset = 0 }) => {
+        const page = store.search({ dueDate: date, done: done ?? undefined }, offset, pageSize + 1);
+        const rows = page.slice(0, pageSize);
+        const scope = done === null ? "" : done ? "已完成" : "未完成";
+        const heading = `${date} 到期的${scope}任务`;
+        if (rows.length)
+          capture?.add({
+            kind: "query",
+            heading,
+            tasks: rows.map((t) => cardTask(store, t)),
+            more: page.length > pageSize,
+          });
+        const reply = rows.length
+          ? [
+              heading + "：",
+              ...rows.map((task) => `· ${task.title}（${task.done ? "已完成" : "待办"}）`),
+            ].join("\n") +
+            (page.length > pageSize
+              ? `\n还有更多任务，可从第 ${offset + pageSize + 1} 条继续查看。`
+              : "")
+          : `${heading}：无。`;
+        return { reply };
+      },
+    ),
+  ];
+}

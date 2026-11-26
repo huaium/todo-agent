@@ -1,26 +1,187 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, type TestContext } from "node:test";
 import type { ChatMessage } from "../shared/chat.ts";
 import { createApp } from "./app.ts";
-import { createJsonTaskStore } from "./task-store.ts";
+import { createTaskStore } from "./task-store.ts";
+import { openDatabase } from "./database.ts";
+import { openConversation } from "./conversation.ts";
+import { taskTools } from "./task-tools.ts";
+import { candidate, choiceQuestion } from "./chat-questions.ts";
+import { completedReply, workspaceContext } from "./agent.ts";
+import { bulkPreviews, previewTurn } from "./planner.ts";
+import { ChatCapture } from "./chat-capture.ts";
+import { ApprovalTurn } from "./chat-approval.ts";
 
-async function startTestApp(t: TestContext) {
+test("canceling the second approval names the first saved task", async (t) => {
+  const { store, port, chat } = await startTestApp(t);
+  const message = "记下买茶和买盐";
+  chat.setApprovalMode(0, "cautious");
+  chat.begin(1, message);
+  const capture = new ChatCapture(message);
+  const turn = new ApprovalTurn(chat, store, 2, capture);
+  const create = taskTools(port, store, undefined, undefined, undefined, undefined, capture).find(
+    (tool) => tool.name === "createTask",
+  )!;
+  await turn.start(async () => {
+    await create.execute("first", { title: "买茶" });
+    await create.execute("second", { title: "买盐" });
+    return { reply: "已记下。" };
+  });
+  await turn.decide(true);
+  await turn.decide(false);
+  assert.deepEqual(
+    store.list().map((task) => task.title),
+    ["买茶"],
+  );
+  const receipt = chat.read().messages.at(-1)!;
+  assert.equal(receipt.content, "已添加「买茶」。\n已取消待审批的更改。");
+  assert.equal(receipt.presentation?.note, "已取消待审批的更改。");
+  assert.deepEqual(
+    receipt.presentation.cards[0].tasks.map((item) => item.title),
+    ["买茶"],
+  );
+});
+
+test("批量回执只包含本轮保存的任务，保留日期精度和单条任务的追问偏好", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const capture = new ChatCapture("可留空，定时那件比较急。");
+  const create = taskTools(port, store, undefined, undefined, undefined, undefined, capture).find(
+    (tool) => tool.name === "createTask",
+  )!;
+  const finish = () => capture.finish(store, { reply: "已记下。" }, { interactive: true });
+  store.create("已有任务");
+  await create.execute("first", {
+    title: "可留空",
+    deadlineOptOutQuote: "可留空",
+    details: { priority: "中" },
+  });
+  assert.equal(finish().question, undefined);
+  await create.execute("rejected", { title: "" });
+  assert.equal(finish().createdTasks, undefined);
+  await create.execute("second", { title: "仅设日期", details: { dueDate: "2030-04-05" } });
+  await create.execute("third", {
+    title: "定时",
+    details: { dueDate: "2030-04-06", dueTime: "09:00", priority: "高" },
+    priorityQuote: "比较急",
+  });
+  assert.equal(store.list().find((task) => task.title === "可留空")!.priority, undefined);
+  assert.equal(store.list().find((task) => task.title === "定时")!.priority, "高");
+  const result = finish();
+  assert.equal(result.question, undefined);
+  assert.equal(result.presentation?.cards.length, 1);
+  assert.deepEqual(result.presentation.cards[0].tasks[2].details, ["优先级 · 高"]);
+  assert.equal(result.reply, "已添加 3 项任务。1 项有具体时间，1 项仅设日期，1 项未设日期。");
+  assert.deepEqual(
+    result.createdTasks?.map((t) => [t.title, t.dueDate, t.dueTime]),
+    [
+      ["可留空", null, null],
+      ["仅设日期", "2030-04-05", null],
+      ["定时", "2030-04-06", "09:00"],
+    ],
+  );
+  const single = new ChatCapture("再记一条取快递");
+  const pickup = store.create("取快递");
+  single.record(pickup.id, "可留空");
+  const followup = single.finish(
+    store,
+    { reply: "已添加「取快递」，截止时间留空。" },
+    { interactive: true },
+  );
+  assert.equal(followup.question?.kind, "deadline");
+  assert.ok(followup.question?.kind === "deadline" && followup.question.task.id === pickup.id);
+  const advice = "先核对取件码，再去驿站。";
+  const mixed = single.finish(store, { reply: "已记下。" }, { interactive: true, message: advice });
+  assert.equal(mixed.question?.kind, "deadline");
+  assert.ok(mixed.reply.includes(advice));
+  assert.equal(mixed.presentation?.note, advice);
+});
+
+test("only displayed searches and successful edits generate immutable chat cards", async (t) => {
+  const { store, port, chat, directory } = await startTestApp(t);
+  const task = store.create("收货", { dueDate: "2030-01-01", reminder: "2029-12-31T12:00" });
+  const capture = new ChatCapture("查询并改期");
+  const tools = taskTools(port, store, undefined, undefined, undefined, undefined, capture);
+  const run = async (name: string, args: object) => {
+    const result = await tools.find((tool) => tool.name === name)!.execute("call", args);
+    assert.equal(
+      completedReply([{ toolName: name, isError: !!result.isError, details: result.details }]),
+      undefined,
+    );
+    return result;
+  };
+  const finish = () => capture.finish(store, { reply: "已处理" });
+  await run("listTasks", { query: "收货" });
+  await run("setTaskDetails", { id: "missing", changes: { dueDate: "2030-01-02" } });
+  assert.equal(finish().presentation, undefined);
+  await run("listTasks", { display: true });
+  await run("setTaskDetails", {
+    id: task.id,
+    changes: { dueDate: "2030-01-02", reminder: "2030-01-01T10:00" },
+  });
+  await run("updateTask", { id: task.id, changes: { done: true } });
+  await run("deleteTask", { id: task.id });
+  chat.appendReply(0, false, finish());
+  const reopened = openDatabase(directory);
+  t.after(() => reopened.close());
+  const cards = openConversation(reopened).read().messages[0].presentation!.cards;
+  assert.deepEqual(
+    cards.map((c) => c.kind),
+    ["query", "updated", "completed", "deleted"],
+  );
+  assert.equal(cards[0].tasks[0].dueDate, "2030-01-01");
+  assert.equal(cards[1].tasks[0].previousDeadline, "2030-01-01");
+  assert.equal(cards[1].tasks[0].dueDate, "2030-01-02");
+  assert.deepEqual(cards[1].tasks[0].details, ["提醒 · 2030-01-01 10:00"]);
+});
+
+test(
+  "实时复合请求能完成选择、继续创建并在卡片旁保留解释",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, store, chat } = await startTestApp(t);
+    const first = store.create("报告"),
+      second = store.create("报告");
+    const question = choiceQuestion(store.snapshot(), [first.id, second.id], {
+      kind: "update",
+      changes: { done: true },
+    })!;
+    chat.appendReply(0, false, { reply: "你指的是哪一条报告？", question });
+    const { status, body } = await request("POST", "/api/chat", {
+      action: "send",
+      revision: 1,
+      text: "把第二个报告标为完成，再记一条买牛奶，并用一句话解释准备报告的步骤。",
+    });
+    assert.equal(status, 200);
+    assert.equal(store.list().find((t) => t.id === second.id)?.done, true);
+    assert.equal(store.list().find((t) => t.id === first.id)?.done, false);
+    assert.equal(store.list().filter((t) => t.title.includes("买牛奶")).length, 1);
+    const saved = body.messages.at(-1);
+    assert.ok(saved.presentation.cards.some((card: { kind: string }) => card.kind === "completed"));
+    assert.ok(saved.presentation.cards.some((card: { kind: string }) => card.kind === "created"));
+    assert.ok(saved.presentation.note?.length);
+    assert.ok(saved.content.includes(saved.presentation.note));
+  },
+);
+
+async function startTestApp(
+  t: TestContext,
+  reply?: (messages: ChatMessage[]) => Promise<string>,
+  now?: () => Date,
+) {
   const directory = await mkdtemp(join(tmpdir(), "todo-agent-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
-  const filename = join(directory, "tasks.json");
-  const conversations: ChatMessage[][] = [];
-  const app = createApp({
-    tasks: createJsonTaskStore(filename),
-    async reply(messages) {
-      conversations.push(messages);
-      return "收到";
-    },
-  });
+  const db = openDatabase(directory);
+  t.after(() => db.close());
+  const store = createTaskStore(db, now);
+  const chat = openConversation(db);
+  const bulk = bulkPreviews(store);
+  const app = createApp({ tasks: store, chat, reply, bulk });
 
   const server = app.listen(0, "127.0.0.1");
   t.after(() => server[Symbol.asyncDispose]());
@@ -39,8 +200,252 @@ async function startTestApp(t: TestContext) {
     };
   }
 
-  return { request, conversations, filename };
+  return { request, store, port, directory, chat, db, bulk };
 }
+
+test("chat pages keep history on disk and transfer only new messages and control changes", async (t) => {
+  const { request, chat } = await startTestApp(t);
+  for (let index = 0; index < 1001; index++) {
+    chat.begin(index * 2, "消息 " + index);
+    chat.appendReply(index * 2 + 1, true, "回复".repeat(256));
+  }
+  const url = "/api/chat?window=1";
+  const latest = (await request("GET", url)).body;
+  assert.equal(latest.mode, "latest");
+  assert.equal(latest.messages.length, 50);
+  assert.equal(latest.hasOlder, true);
+  const cursor = "&history=" + latest.history;
+  const older = (await request("GET", url + cursor + "&before=" + latest.first)).body;
+  assert.equal(older.mode, "older");
+  assert.equal(older.messages.length, 50);
+  assert.equal(older.last, latest.first - 1);
+  const sync = url + cursor + "&since=" + latest.last + "&after=" + latest.revision;
+  assert.equal((await request("GET", sync)).status, 204);
+  chat.begin(latest.revision, "新消息");
+  const delta = (await request("GET", sync)).body;
+  assert.equal(delta.mode, "append");
+  assert.deepEqual(
+    delta.messages.map((m: ChatMessage) => m.content),
+    ["新消息"],
+  );
+  chat.appendReply(delta.revision, true, "收到");
+  const state = chat.state();
+  const receipt = (
+    await request("POST", url + cursor + "&since=" + delta.last, {
+      action: "setApprovalMode",
+      revision: state.revision,
+      mode: "cautious",
+    })
+  ).body;
+  assert.equal(receipt.messages.length, 1);
+  assert.equal(receipt.approvalMode, "cautious");
+  const controls = (
+    await request("POST", url + cursor + "&since=" + receipt.last, {
+      action: "setApprovalMode",
+      revision: receipt.revision,
+      mode: "allow",
+    })
+  ).body;
+  assert.deepEqual(controls.messages, []);
+  assert.equal(controls.last, receipt.last);
+  const cleared = (
+    await request("POST", url + cursor + "&since=" + controls.last, {
+      action: "clear",
+      revision: controls.revision,
+    })
+  ).body;
+  assert.equal(cleared.mode, "latest");
+  assert.notEqual(cleared.history, latest.history);
+  assert.deepEqual(cleared.messages, []);
+  const stale = (await request("GET", url + cursor + "&before=" + older.first)).body;
+  assert.equal(stale.history, cleared.history);
+  assert.deepEqual(stale.messages, []);
+  assert.equal(
+    (await request("POST", sync, { action: "clear", revision: cleared.revision })).status,
+    409,
+  );
+});
+
+test("preview confirmations and cancellations leave an independent question answerable in either order", async (t) => {
+  const { request, store, chat, bulk } = await startTestApp(t);
+  for (const action of ["cancel", "confirm"]) {
+    for (const previewFirst of [true, false]) {
+      const target = store.create("周报");
+      const choice = store.create("报告");
+      const question = choiceQuestion(store.snapshot(), [choice.id], {
+        kind: "update",
+        changes: { done: true },
+      })!;
+      const preview = bulk.preview([target.id], "2030-03-06");
+      chat.appendReply(chat.state().revision, false, { reply: "选择任务", question, preview });
+      const apply = () =>
+        request("POST", "/api/chat", {
+          action,
+          token: preview.token,
+          revision: chat.state().revision,
+        });
+      const answer = () =>
+        request("POST", "/api/chat", {
+          action: "answer",
+          questionId: question.id,
+          answer: { kind: "choose", taskId: choice.id },
+          revision: chat.state().revision,
+        });
+      if (previewFirst) {
+        assert.equal((await apply()).body.activeQuestionId, question.id);
+        assert.equal(chat.lastQuestion()?.id, question.id);
+        assert.equal((await answer()).status, 200);
+      } else {
+        assert.equal((await answer()).body.preview.token, preview.token);
+        assert.equal((await apply()).status, 200);
+      }
+      assert.equal(store.search({ id: choice.id }, 0, 1)[0].done, true);
+      assert.equal(chat.lastQuestion(), undefined);
+      assert.equal((await answer()).status, 409);
+    }
+  }
+});
+
+test("compound edits use the selected task's committed version and reject later outside edits", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const first = store.create("报告"),
+    second = store.create("报告");
+  const previous = choiceQuestion(store.snapshot(), [first.id, second.id], {
+    kind: "update",
+    changes: { done: true },
+  })!;
+  const tools = taskTools(port, store, undefined, {
+    previous,
+    respond(result) {
+      assert.equal(result.question, undefined);
+    },
+  });
+  const run = (name: string, args: object) =>
+    tools.find((tool) => tool.name === name)!.execute(name, args);
+  assert.ok(
+    !(await run("answerQuestion", { answer: { kind: "choose", taskId: second.id } })).isError,
+  );
+  assert.ok(!(await run("setTaskDetails", { id: second.id, changes: { starred: true } })).isError);
+  assert.ok(!(await run("updateTask", { id: second.id, changes: { title: "周报" } })).isError);
+  store.update(second.id, { title: "另一标签页的周报" });
+  assert.ok((await run("updateTask", { id: second.id, changes: { title: "旧标题" } })).isError);
+  const [saved] = store.search({ id: second.id }, 0, 1);
+  assert.deepEqual([saved.title, saved.done, saved.starred], ["另一标签页的周报", true, true]);
+  assert.equal(store.search({ id: first.id }, 0, 1)[0].done, false);
+});
+
+test(
+  "实时追问保留改期预览，同一个预览确认后才写入",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { store, request } = await startTestApp(t);
+    const tasks = ["报告", "取件"].map((title) => store.create(title));
+    const context = { view: "全部", visibleIds: tasks.map((task) => task.id), selectedId: null };
+    const initial = await request("POST", "/api/chat", {
+      action: "send",
+      revision: 0,
+      text: "把这些任务一起改到 2030-03-06，请先预览。",
+      context,
+    });
+    assert.equal(initial.status, 200);
+    const preview = initial.body.preview;
+    assert.deepEqual(preview.titles.toSorted(), tasks.map((t) => t.title).toSorted());
+    const next = await request("POST", "/api/chat", {
+      action: "send",
+      revision: initial.body.revision,
+      text: "这次改期包括「报告」吗？请说明预览中的任务和日期。",
+      context,
+    });
+    assert.equal(next.status, 200);
+    assert.deepEqual(next.body.preview, preview);
+    assert.match(next.body.messages.at(-1).content, /报告/);
+    assert.match(next.body.messages.at(-1).content, /取件/);
+    assert.ok(store.list().every((t) => !t.dueDate));
+    const done = await request("POST", "/api/chat", {
+      action: "confirm",
+      revision: next.body.revision,
+      token: preview.token,
+    });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.preview, undefined);
+    assert.ok(store.list().every((t) => t.dueDate === "2030-03-06"));
+  },
+);
+
+test("preview follow-ups can inspect entries beyond the first page and a cancellation retires the card", async (t) => {
+  const { store, chat, port, request } = await startTestApp(t);
+  const tasks = Array.from({ length: 25 }, (_, i) => store.create("事项" + i));
+  const bulk = bulkPreviews(store);
+  const p = bulk.preview(
+    tasks.map((t) => t.id),
+    "2030-03-06",
+  );
+  chat.appendReply(0, false, { reply: "待确认", preview: p });
+  const read = () => chat.state().preview;
+  const turn = previewTurn(bulk, p);
+  const tools = taskTools(
+    port,
+    store,
+    turn.create,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    turn,
+  );
+  chat.begin(1, "还有哪些任务？");
+  assert.equal(read()?.token, p.token);
+  const inspect = tools.find((tool) => tool.name === "readReschedulePreview")!;
+  const match = await inspect.execute("read", { query: "事项24" });
+  assert.deepEqual(match.details, { date: p.date, total: 25, matched: 1, titles: ["事项24"] });
+  chat.appendReply(2, true, { reply: "包括事项24" });
+  assert.deepEqual((await request("GET", "/api/chat")).body.preview, p);
+  chat.begin(3, "取消预览");
+  await tools.find((tool) => tool.name === "cancelReschedulePreview")!.execute("cancel", {});
+  chat.appendReply(4, true, { reply: "已取消改期。", preview: turn.finish() });
+  assert.throws(() => bulk.confirm(p.token), /失效/);
+  assert.equal(read(), undefined);
+  assert.ok(store.list().every((t) => !t.dueDate));
+  const question = choiceQuestion(store.snapshot(), [tasks[0].id, tasks[1].id], {
+    kind: "update",
+    changes: { done: true },
+  })!;
+  chat.appendReply(5, false, {
+    reply: "你指的是哪一条？",
+    question,
+    preview: { ...p, expiresAt: Date.now() - 1 },
+  });
+  const expired = await request("GET", "/api/chat");
+  assert.equal(expired.body.preview, undefined);
+  assert.equal(expired.body.messages.at(-1).question.id, question.id);
+});
+
+test("批量删除只将确认时选中的已完成任务移入回收站，允许重试和恢复", async (t) => {
+  const { request, store } = await startTestApp(t);
+  const parent = store.create("准备会议");
+  const child = store.create("检查投影", { parentId: parent.id });
+  const pending = store.create("整理现场", { parentId: parent.id });
+  const reopened = store.create("复核名单");
+  const recurring = store.create("每日签到", { repeat: "daily", dueDate: "2030-01-01" });
+  const completedIds = [parent.id, child.id, reopened.id, recurring.id];
+  for (const id of completedIds) store.update(id, { done: true });
+  store.update(reopened.id, { done: false });
+  const later = store.create("新完成的任务");
+  store.update(later.id, { done: true });
+  assert.equal((await request("DELETE", "/api/planner/tasks", {})).status, 400);
+  for (let i = 0; i < 2; i++)
+    assert.equal((await request("DELETE", "/api/planner/tasks", { completedIds })).status, 204);
+  const bin = store.bin();
+  assert.deepEqual(bin.map((item) => item.id).sort(), [parent.id, child.id, recurring.id].sort());
+  const snapshot = store.list();
+  assert.ok(snapshot.some((task) => task.id === pending.id && !task.parentId));
+  assert.ok(snapshot.some((task) => task.id === reopened.id && !task.done));
+  assert.ok(snapshot.some((task) => task.id === later.id && task.done));
+  assert.ok(snapshot.some((task) => task.title === recurring.title && !task.done));
+  for (const id of [parent.id, child.id])
+    assert.ok(store.restore(id, bin.find((item) => item.id === id)!.deletedAt));
+  assert.equal(store.list().find((task) => task.id === child.id)?.parentId, parent.id);
+});
 
 test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
   const { request } = await startTestApp(t);
@@ -64,6 +469,156 @@ test("任务 API 可以创建、列出、修改和删除任务", async (t) => {
   assert.deepEqual((await request("GET", collection)).body, []);
 });
 
+test("stale autosaves return the current task without writing", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const task = store.create("记录");
+  const expectedVersion = createHash("sha256").update(JSON.stringify(task)).digest("hex");
+  const path = "/api/planner/tasks/" + task.id;
+  const first = await request("PATCH", path, { changes: { notes: "first" }, expectedVersion });
+  assert.equal(first.status, 200);
+  const second = await request("PATCH", path, { changes: { notes: "second" }, expectedVersion });
+  assert.equal(second.status, 412);
+  assert.deepEqual(second.body.current, first.body);
+  assert.deepEqual(store.list(), [first.body]);
+});
+
+test("manual moves and bin restores preserve creation order in the public API", async (t) => {
+  const { request, store } = await startTestApp(t);
+  const a = store.create("A"),
+    b = store.create("B");
+  await request("POST", "/api/planner/tasks/order", {
+    previous: [a.id, b.id],
+    ordered: [b.id, a.id],
+  });
+  assert.deepEqual((await request("GET", "/api/planner")).body.tasks, [b, a]);
+  assert.deepEqual((await request("GET", "/api/tasks")).body, [a, b]);
+  store.remove(a.id);
+  const c = store.create("C");
+  store.restore(a.id, store.bin()[0].deletedAt);
+  assert.deepEqual((await request("GET", "/api/tasks")).body, [a, b, c]);
+});
+
+test("planner sync skips unchanged snapshots and tracks writes, ordering, lists and the bin", async (t) => {
+  const { request, store } = await startTestApp(t);
+  let token = "";
+  const sync = (bin = false) =>
+    request("GET", "/api/planner/sync?bin=" + Number(bin) + "&after=" + encodeURIComponent(token));
+  async function changed(bin = false) {
+    const response = await sync(bin);
+    assert.equal(response.status, 200);
+    token = response.body.revision;
+    assert.deepEqual(response.body.planner, store.snapshot());
+    assert.deepEqual(response.body.bin, bin ? store.bin() : null);
+    assert.equal((await sync(bin)).status, 204);
+  }
+  await changed();
+  store.initializeZone("Asia/Singapore");
+  await changed();
+  const list = store.editList(null, "工作");
+  await changed();
+  const a = store.create("A", { listId: list }),
+    b = store.create("B");
+  await changed();
+  store.update(a.id, { notes: "草稿" });
+  await changed();
+  store.reorder([a.id, b.id], [b.id, a.id]);
+  await changed();
+  store.remove(a.id);
+  await changed(true);
+  store.deleteBinItems([{ id: a.id, deletedAt: store.bin()[0].deletedAt }]);
+  await changed(true);
+});
+
+test("relative movement rejects a changed anchor before promoting a child", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const anchor = store.create("开会"),
+    source = store.create("买鸡蛋", { parentId: anchor.id });
+  const snapshot = store.snapshot();
+  const expected = {
+    source: candidate(snapshot, source.id)!.version,
+    anchor: candidate(snapshot, anchor.id)!.version,
+  };
+  store.update(anchor.id, { title: "另一次会议" });
+  assert.equal(
+    (
+      await request("POST", "/api/planner/tasks/order", {
+        id: source.id,
+        anchorId: anchor.id,
+        side: "before",
+        expected,
+      })
+    ).status,
+    412,
+  );
+  assert.deepEqual(
+    store.list().map((t) => [t.id, t.parentId]),
+    [
+      [anchor.id, undefined],
+      [source.id, anchor.id],
+    ],
+  );
+});
+test("permanent deletion removes only the selected bin entry", async (t) => {
+  const { store, request } = await startTestApp(t);
+  const a = store.create("周报"),
+    b = store.create("周报"),
+    active = store.create("保留");
+  store.remove(a.id);
+  store.remove(b.id);
+  const entry = store.bin().find((item) => item.id === a.id)!;
+  const collection = "/api/planner/bin",
+    path = collection + "/" + a.id;
+  const body = { deletedAt: entry.deletedAt };
+  assert.equal((await request("DELETE", collection, body)).status, 400);
+  assert.equal((await request("DELETE", path)).status, 400);
+  assert.equal((await request("DELETE", path, { deletedAt: entry.deletedAt - 1 })).status, 404);
+  assert.equal(store.bin().length, 2);
+  assert.equal((await request("DELETE", path, body)).status, 204);
+  assert.equal((await request("DELETE", path, body)).status, 404);
+  assert.equal((await request("POST", path + "/restore", body)).status, 404);
+  const [other] = store.bin();
+  assert.equal(other.id, b.id);
+  assert.ok(store.restore(other.id, other.deletedAt));
+  assert.deepEqual(store.list(), [active, b]);
+});
+
+test("清空回收站只永久删除确认过的记录，重试不影响后来删除的任务", async (t) => {
+  let time = Date.now();
+  const { store, request } = await startTestApp(t, undefined, () => new Date(time));
+  const url = "/api/planner/bin";
+  const kept = store.create("保留");
+  const [a, b, restored, archivedAgain, later] = ["甲", "乙", "丙", "丁", "戊"].map((title) =>
+    store.create(title),
+  );
+  for (const task of [a, b, restored, archivedAgain]) store.remove(task.id);
+  const entries = store.bin().map(({ id, deletedAt }) => ({ id, deletedAt }));
+  assert.ok(store.restore(restored.id, entries.find((e) => e.id === restored.id)!.deletedAt));
+  assert.ok(
+    store.restore(archivedAgain.id, entries.find((e) => e.id === archivedAgain.id)!.deletedAt),
+  );
+  for (const body of [{ entries: [] }, { entries: [{ id: a.id }] }])
+    assert.equal((await request("DELETE", url, body)).status, 400);
+  store.remove(later.id);
+  time += 1000;
+  store.remove(archivedAgain.id);
+  for (let attempt = 0; attempt < 2; attempt++)
+    assert.equal((await request("DELETE", url, { entries })).status, 204);
+  assert.deepEqual(
+    store
+      .bin()
+      .map((e) => e.id)
+      .sort(),
+    [later.id, archivedAgain.id].sort(),
+  );
+  assert.deepEqual(
+    store
+      .list()
+      .map((t) => t.id)
+      .sort(),
+    [kept.id, restored.id].sort(),
+  );
+});
+
 test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
   const { request } = await startTestApp(t);
   assert.equal((await request("POST", "/api/tasks", { title: " " })).status, 400);
@@ -72,18 +627,159 @@ test("任务 API 拒绝无效输入并区分不存在的任务", async (t) => {
   assert.equal((await request("DELETE", "/api/tasks/missing")).status, 404);
 });
 
-test("更新已有 JSON 清单时保留其他任务和扩展字段", async (t) => {
-  const { request, filename } = await startTestApp(t);
+test("模型工具通过任务 HTTP 接口读写，参数错误不改变清单", async (t) => {
+  const { request, port, store } = await startTestApp(t);
+  const tools = taskTools(port, store);
+  const execute = async (name: string, args: unknown) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
+  await execute("createTask", { title: "买牛奶" });
+  const [task] = (await request("GET", "/api/tasks")).body;
+  assert.equal(task.title, "买牛奶");
+  assert.ok("error" in Object(await execute("updateTask", "{")));
+  assert.ok("error" in Object(await execute("updateTask", { id: task.id, changes: {} })));
+  assert.deepEqual(await execute("listTasks", {}), [task]);
+  assert.deepEqual(await execute("listTasks", { display: true }), { reply: "· 买牛奶（待办）" });
+  await execute("updateTask", { id: task.id, changes: { done: true } });
+  assert.equal(store.list()[0].done, true);
+  await execute("deleteTask", { id: task.id });
+  assert.deepEqual(await execute("listTasks", {}), []);
+});
+
+test("chat context stays compact, search pages exclude notes, and visible bulk previews cover all pages", async (t) => {
+  const { store, port } = await startTestApp(t);
+  const notes = "采购明细".repeat(500);
+  const tasks = Array.from({ length: 27 }, (_, i) => store.create("记录" + i, { notes }));
+  const view = { view: "已筛选", visibleIds: tasks.slice(1).map((t) => t.id), selectedId: null };
+  const compact = JSON.stringify(workspaceContext(view));
+  assert.ok(compact.length < 150 && !compact.includes(tasks[1].id));
+  const bulk = bulkPreviews(store);
+  let token = "";
+  const tools = taskTools(
+    port,
+    store,
+    (ids, date) => {
+      const preview = bulk.preview(ids, date);
+      token = preview.token;
+      return preview;
+    },
+    undefined,
+    undefined,
+    view,
+  );
+  const run = async (name: string, args: object) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test", args)).details;
+  const first = (await run("listTasks", { query: "采购", visible: true })) as {
+    tasks: { id: string; notes?: string }[];
+    nextOffset: number;
+  };
+  assert.deepEqual(
+    first.tasks.map((t) => t.id),
+    view.visibleIds.slice(0, 20),
+  );
+  assert.ok(first.tasks.every((task) => task.notes === undefined));
+  assert.equal(first.nextOffset, 20);
+  const rest = (await run("listTasks", {
+    query: "采购",
+    visible: true,
+    offset: first.nextOffset,
+  })) as { id: string }[];
+  assert.deepEqual(
+    rest.map((t) => t.id),
+    view.visibleIds.slice(20),
+  );
+  const detail = (await run("readTaskDetails", { id: tasks[1].id })) as {
+    notes: string;
+    nextNoteOffset: number;
+  };
+  assert.equal(detail.notes, notes.slice(0, 1600));
+  assert.equal(detail.nextNoteOffset, 1600);
+  await run("previewReschedule", { visible: true, date: "2030-01-01" });
+  bulk.confirm(token);
+  assert.deepEqual(
+    store
+      .list()
+      .filter((t) => t.dueDate === "2030-01-01")
+      .map((t) => t.id),
+    view.visibleIds,
+  );
+});
+
+test("更新数据库中的任务时保留其他任务和扩展字段", async (t) => {
   const first = { id: "a", title: "买牛奶", done: false, priority: 1 };
   const second = { id: "b", title: "取快递", done: false };
-  await writeFile(filename, JSON.stringify([first, second]));
+  const { request, store, db } = await startTestApp(t);
+  const insert = db.prepare("INSERT INTO tasks(id,payload) VALUES(?,?)");
+  for (const task of [first, second]) insert.run(task.id, JSON.stringify(task));
 
   assert.equal((await request("PATCH", "/api/tasks/a", { done: true })).status, 200);
-  assert.deepEqual(createJsonTaskStore(filename).list(), [{ ...first, done: true }, second]);
+  assert.deepEqual(store.list(), [{ ...first, done: true }, second]);
+});
+
+test("小明的清单操作和稍后提醒与规划界面共享数据", async (t) => {
+  const { port, store } = await startTestApp(t);
+  const tools = taskTools(port, store);
+  const run = async (name: string, args: object) =>
+    (await tools.find((tool) => tool.name === name)!.execute("planner-test", args)).details;
+  await run("manageList", { action: "create", name: "采购" });
+  const list = store.snapshot().lists.find((l) => l.name === "采购")!;
+  await run("manageList", { action: "rename", id: list.id, name: "购物" });
+  await run("createTask", {
+    title: "牛奶",
+    details: { listId: list.id, reminder: "2025-01-01T09:00" },
+  });
+  const [task] = store.list();
+  assert.equal(task.listId, list.id);
+  assert.deepEqual(await run("snoozeReminder", { id: task.id }), { snoozed: task.id });
+  assert.ok(store.list()[0].snoozeUntil);
+  await run("manageList", { action: "delete", id: list.id });
+  assert.equal(store.list()[0].id, task.id);
+  assert.equal(store.list()[0].listId, undefined);
+});
+
+test("任务详情持久化，筛选到期子任务并保留已删除父任务的子项", async (t) => {
+  const { request, port, store, directory } = await startTestApp(t);
+  const tools = taskTools(port, store);
+  const run = async (name: string, args: unknown) =>
+    (await tools.find((tool) => tool.name === name)!.execute("test-call", args)).details;
+  const parent = store.create("准备发布");
+  const child = store.create("核对清单");
+  const details = { dueDate: "2028-02-29", priority: "高", effort: "小", parentId: parent.id };
+  assert.deepEqual(await run("setTaskDetails", { id: child.id, changes: details }), {
+    ...child,
+    ...details,
+  });
+  for (const changes of [
+    { parentId: child.id },
+    { parentId: "missing" },
+    { dueDate: "2027-02-29" },
+    { priority: "urgent" },
+  ]) {
+    assert.ok("error" in Object(await run("setTaskDetails", { id: parent.id, changes })));
+  }
+  assert.deepEqual(
+    await run("listTasks", { dueDate: details.dueDate, done: false, parentId: parent.id }),
+    [{ ...child, ...details }],
+  );
+  await run("setTaskDetails", { id: parent.id, changes: { dueDate: "2028-02-28" } });
+  assert.deepEqual(await run("showTasksDue", { date: "2028-02-28" }), {
+    reply: "2028-02-28 到期的未完成任务：\n· 准备发布（待办）",
+  });
+  assert.equal((await request("PATCH", "/api/tasks/" + child.id, { effort: "大" })).status, 400);
+  await request("DELETE", "/api/tasks/" + parent.id);
+  const reopenedDb = openDatabase(directory, true);
+  const [reopened] = createTaskStore(reopenedDb).list();
+  reopenedDb.close();
+  assert.deepEqual(reopened, { ...child, dueDate: details.dueDate, priority: "高", effort: "小" });
+  await run("setTaskDetails", { id: child.id, changes: { dueDate: null } });
+  assert.deepEqual(await run("listTasks", { dueDate: details.dueDate }), []);
 });
 
 test("聊天 API 只将有效的完整对话传给智能体，并返回其回复", async (t) => {
-  const { request, conversations } = await startTestApp(t);
+  const conversations: ChatMessage[][] = [];
+  const { request } = await startTestApp(t, async (messages) => {
+    conversations.push(messages);
+    return "收到";
+  });
   const messages = [
     { role: "user", content: "你好" },
     { role: "assistant", content: "你好！" },
@@ -96,3 +792,130 @@ test("聊天 API 只将有效的完整对话传给智能体，并返回其回复
   assert.equal(invalid.status, 400);
   assert.deepEqual(conversations, [messages]);
 });
+
+test("持久对话拒绝旧版本的更改，清空对话保留任务", async (t) => {
+  const { request, store } = await startTestApp(t);
+  store.create("保留任务");
+  const empty = { revision: 0, messages: [], pending: false };
+  assert.deepEqual((await request("GET", "/api/chat")).body, empty);
+  assert.equal((await request("GET", "/api/chat?after=0")).status, 204);
+  assert.equal(
+    (await request("POST", "/api/chat", { action: "clear", revision: 0 })).body.revision,
+    1,
+  );
+  assert.equal(
+    (await request("POST", "/api/chat", { action: "send", revision: 0, text: "旧请求" })).status,
+    409,
+  );
+  assert.deepEqual((await request("GET", "/api/chat")).body, { ...empty, revision: 1 });
+  assert.equal(store.list()[0].title, "保留任务");
+});
+
+test(
+  "持久对话完成后可重新读取，重复提交旧请求只创建一个任务",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, store } = await startTestApp(t);
+    const command = { action: "send", revision: 0, text: "添加任务「整理收据」。" };
+    const [a, b] = await Promise.all([
+      request("POST", "/api/chat", command),
+      request("POST", "/api/chat", command),
+    ]);
+    assert.deepEqual([a.status, b.status].sort(), [200, 409]);
+    const saved = (await request("GET", "/api/chat")).body;
+    assert.deepEqual(saved, a.status === 200 ? a.body : b.body);
+    assert.deepEqual(
+      saved.messages.map((m: ChatMessage) => m.role),
+      ["user", "assistant"],
+    );
+    assert.equal(saved.messages[0].content, command.text);
+    assert.match(saved.messages[1].content, /整理收据/);
+    assert.deepEqual(
+      store.list().map((t) => t.title),
+      ["整理收据"],
+    );
+    const cleared = await request("POST", "/api/chat", {
+      action: "clear",
+      revision: saved.revision,
+    });
+    assert.deepEqual(cleared.body.messages, []);
+    assert.equal(store.list().length, 1);
+  },
+);
+
+test(
+  "Pi 通过实时 DeepSeek 对话删除指定任务并保留其他记录",
+  {
+    skip: process.env.RUN_LIVE_AGENT_TEST !== "1",
+  },
+  async (t) => {
+    assert.ok(process.env.DEEPSEEK_API_KEY, "实时测试需要 DEEPSEEK_API_KEY");
+    const { request, store } = await startTestApp(t);
+    const keep = store.create("买牛奶");
+    store.create("取快递");
+    const response = await request("POST", "/api/chat", {
+      messages: [{ role: "user", content: "取快递这条删掉吧" }],
+    });
+    assert.equal(response.status, 200);
+    assert.match(response.body.reply, /取快递/u);
+    assert.deepEqual(store.list(), [keep]);
+  },
+);
+
+test(
+  "小明按当前筛选预览批量改期，点击确认才写入",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, store } = await startTestApp(t);
+    const a = store.create("买水果");
+    const b = store.create("买牛奶");
+    const c = store.create("写报告");
+    const response = await request("POST", "/api/chat", {
+      messages: [{ role: "user", content: "把这些任务都改到 2027-03-06。" }],
+      context: { view: "购物", visibleIds: [a.id, b.id], selectedId: null },
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual([...response.body.preview.titles].sort(), [a.title, b.title].sort());
+    assert.ok(store.list().every((task) => !task.dueDate));
+    assert.equal(
+      (await request("POST", "/api/planner/reschedule/" + response.body.preview.token)).status,
+      204,
+    );
+    assert.deepEqual(
+      store.list().map((task) => [task.id, task.dueDate]),
+      [
+        [a.id, "2027-03-06"],
+        [b.id, "2027-03-06"],
+        [c.id, undefined],
+      ],
+    );
+  },
+);
+
+test(
+  "小明建立每周五的任务，从原任务 API 完成后只生成一个带提醒的下周任务",
+  { skip: process.env.RUN_LIVE_AGENT_TEST !== "1" },
+  async (t) => {
+    const { request, store } = await startTestApp(t);
+    await request("POST", "/api/planner/timezone", { timeZone: "Asia/Singapore" });
+    const response = await request("POST", "/api/chat", {
+      messages: [
+        {
+          role: "user",
+          content:
+            "请创建任务「交周报」，从 2030-01-04 周五开始，每周五到期，提前一天（周四）下午三点提醒我。",
+        },
+      ],
+    });
+    assert.equal(response.status, 200);
+    const [first] = store.list();
+    assert.equal(first.repeat, "weekly");
+    assert.equal(first.reminder, "2030-01-03T15:00");
+    for (let i = 0; i < 2; i++)
+      assert.equal((await request("PATCH", "/api/tasks/" + first.id, { done: true })).status, 200);
+    const occurrences = store.list();
+    assert.equal(occurrences.length, 2);
+    assert.equal(occurrences[1].dueDate, "2030-01-11");
+    assert.equal(occurrences[1].reminder, "2030-01-10T15:00");
+  },
+);
