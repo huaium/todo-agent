@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Button, Dropdown, Input, Label, Modal, TextField } from "@heroui/react";
+import { Button, Dropdown, Input, Modal, TextField } from "@heroui/react";
 import { ChoiceField, ConfirmAction, options } from "./PlannerControls.tsx";
 import { inbox, pendingReminder } from "../shared/planner.ts";
 import { priorities } from "../shared/task.ts";
@@ -299,6 +299,7 @@ export default function App() {
                   <Modal.Body>
                     <form id="create-list" onSubmit={saveList}>
                       <TextField
+                        aria-label="清单名称"
                         value={listName}
                         onChange={(value) => {
                           setListName(value);
@@ -306,7 +307,6 @@ export default function App() {
                         }}
                         isReadOnly={savingList}
                       >
-                        <Label>清单名称</Label>
                         <Input
                           autoFocus
                           maxLength={80}
