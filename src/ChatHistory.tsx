@@ -56,9 +56,10 @@ export function ChatHistory({
             <div
               key={index}
               className={`message ${message.role}`}
+              role="group"
+              aria-label={message.role === "user" ? "发出的消息" : "收到的回复"}
               data-new={index >= restoredCount || undefined}
             >
-              <small>{message.role === "user" ? "你" : "小明智能体"}</small>
               <div>{message.content}</div>
               {index === messages.length - 1 &&
                 message.role === "assistant" &&

@@ -230,7 +230,6 @@
 .rail-foot small,
 .metadata,
 .task-row time,
-.thread small,
 .view-head p,
 .reminders small,
 .reply-pending,
@@ -578,10 +577,6 @@
   color: var(--accent-soft-foreground);
   padding: 8px 12px;
   border-radius: 14px;
-}
-.user small {
-  display: block;
-  text-align: end;
 }
 .chat-question {
   position: relative;
