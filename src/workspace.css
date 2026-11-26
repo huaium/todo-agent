@@ -683,11 +683,26 @@
   resize: none;
   width: 100%;
   min-height: 84px;
-  padding-inline-end: 60px;
+  padding-inline-end: 104px;
 }
-.composer .send {
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   position: absolute;
   inset: auto 8px 8px auto;
+}
+.composer .voice-recording {
+  color: var(--danger);
+}
+.voice-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.8125rem;
 }
 .preview {
   margin: 8px var(--chat-inset);

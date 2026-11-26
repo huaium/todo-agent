@@ -4,6 +4,7 @@ import { ConfirmAction } from "./PlannerControls.tsx";
 import { ChatHistory } from "./ChatHistory.tsx";
 import { ChatSettings, useSendShortcut } from "./ChatSettings.tsx";
 import { ModelDownload, useSpeechModel } from "./speech/ModelDownload.tsx";
+import { useDictation } from "./speech/useDictation.ts";
 import { useConversation } from "./chat-client.ts";
 import { KeyHint } from "./KeyboardHints.tsx";
 import { IconButton } from "./IconButton.tsx";
@@ -64,6 +65,18 @@ export function ChatPanel({
   const mode = state?.approvalMode ?? "allow";
   const approval = state?.approval;
   const input = useRef<HTMLTextAreaElement>(null);
+  const voice = useDictation((text) => {
+    setDraft((previous) =>
+      previous && !/\s$/u.test(previous) ? previous + " " + text : previous + text,
+    );
+    if (input.current?.offsetParent) input.current.focus();
+  });
+  const voiceActive = voice.phase !== "idle";
+  const tooLong = draft.length > 16000;
+  function openModel() {
+    voice.cancel();
+    setShowModel(true);
+  }
   const seenRevision = useRef<number>(undefined);
   useEffect(() => {
     if (!state || seenRevision.current === state.revision) return;
@@ -79,7 +92,7 @@ export function ChatPanel({
     if (!firstLoad && !state.pending) void changed();
   }, [state, changed, tab, applySort]);
   async function send(text: string) {
-    if (!text.trim() || !state || busy) return;
+    if (!text.trim() || text.trim().length > 16000 || !state || busy || voiceActive) return;
     setDraft("");
     const accepted = await submit({
       action: "send",
@@ -132,7 +145,7 @@ export function ChatPanel({
         <ChatSettings
           shiftToSend={shiftToSend}
           onChange={chooseSendShortcut}
-          manageSpeechModel={() => setShowModel(true)}
+          manageSpeechModel={voiceActive ? undefined : openModel}
         />
         {!!state?.messages.length && (
           <IconButton
@@ -145,7 +158,15 @@ export function ChatPanel({
             onPress={() => setClearRevision(state.revision)}
           />
         )}
-        <Button size="sm" variant="tertiary" className="mobile-only" onPress={close}>
+        <Button
+          size="sm"
+          variant="tertiary"
+          className="mobile-only"
+          onPress={() => {
+            if (voiceActive) voice.cancel();
+            close();
+          }}
+        >
           返回清单
         </Button>
       </div>
@@ -171,7 +192,7 @@ export function ChatPanel({
           messages={history}
           pending={!approval && (sending || state.pending)}
           onSelectPrompt={send}
-          disabled={busy}
+          disabled={busy || voiceActive}
           onAnswer={(questionId, answer) =>
             void submit({ action: "answer", revision: state.revision, questionId, answer })
           }
@@ -258,7 +279,23 @@ export function ChatPanel({
         }}
       >
         {error && <p role="alert">{error}</p>}
-        {!busy && (
+        {voice.error && <p role="alert">{voice.error}</p>}
+        {tooLong && <p role="alert">请将草稿缩短至 16000 字符以内再发送。</p>}
+        {voiceActive && (
+          <div className="voice-status">
+            <span role="status">
+              {voice.phase === "recording"
+                ? "正在录音，最长 30 秒"
+                : voice.phase === "permission"
+                  ? "等待麦克风权限…"
+                  : "正在识别中文…"}
+            </span>
+            <Button type="button" size="sm" variant="ghost" onPress={voice.cancel}>
+              取消
+            </Button>
+          </div>
+        )}
+        {!busy && !voiceActive && (
           <div className="chat-key-hints">
             <KeyHint keys={shiftToSend ? "Shift Enter" : "Enter"}>发送</KeyHint>
             <KeyHint keys={shiftToSend ? "Enter" : "Shift Enter"}>换行</KeyHint>
@@ -288,30 +325,46 @@ export function ChatPanel({
             }
           }}
         />
-        <Button
-          className="send"
-          type="submit"
-          size="sm"
-          isIconOnly
-          isDisabled={busy || !draft.trim()}
-          aria-label="发送消息"
-          aria-keyshortcuts={shiftToSend ? "Shift+Enter" : "Enter"}
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-            focusable="false"
+        <div className="composer-actions">
+          <IconButton
+            icon={voice.phase === "recording" ? "stop" : "microphone"}
+            label={voice.phase === "recording" ? "结束录音并转写" : "语音输入"}
+            size="sm"
+            variant="ghost"
+            type="button"
+            className={voice.phase === "recording" ? "voice-recording" : undefined}
+            isDisabled={busy || voice.phase === "recognizing" || voice.phase === "permission"}
+            onPress={() => {
+              if (voice.phase === "recording") voice.finish();
+              else if (speechModel.state.status !== "ready") openModel();
+              else void voice.record();
+            }}
+          />
+          <Button
+            className="send"
+            type="submit"
+            size="sm"
+            isIconOnly
+            isDisabled={busy || voiceActive || tooLong || !draft.trim()}
+            aria-label="发送消息"
+            aria-keyshortcuts={shiftToSend ? "Shift+Enter" : "Enter"}
           >
-            <path d="m21 3-6.3 17.5-3.8-7.4-7.4-3.8L21 3Z M10.9 13.1 21 3" />
-          </svg>
-        </Button>
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="m21 3-6.3 17.5-3.8-7.4-7.4-3.8L21 3Z M10.9 13.1 21 3" />
+            </svg>
+          </Button>
+        </div>
       </form>
     </aside>
   );

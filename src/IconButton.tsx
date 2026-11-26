@@ -2,6 +2,13 @@ import { Button, Tooltip } from "@heroui/react";
 import type { ComponentProps } from "react";
 
 const paths = {
+  microphone: (
+    <>
+      <rect x="9" y="2" width="6" height="13" rx="3" />
+      <path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3m-4 0h8" />
+    </>
+  ),
+  stop: <rect x="5" y="5" width="14" height="14" rx="2" fill="currentColor" stroke="none" />,
   settings: (
     <>
       <path d="m10 3-.5 2.2-1.8 1-2.1-.7-2 3.5 1.6 1.5v2.2L3.6 14.3l2 3.5 2.1-.7 1.8 1 .5 2.3h4l.5-2.3 1.8-1 2.1.7 2-3.5-1.6-1.6v-2.2l1.6-1.5-2-3.5-2.1.7-1.8-1L14 3Z" />

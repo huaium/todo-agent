@@ -47,7 +47,7 @@ export function ChatSettings({
 }: {
   shiftToSend: boolean;
   onChange(shift: boolean): void;
-  manageSpeechModel(): void;
+  manageSpeechModel?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   return (
@@ -79,11 +79,12 @@ export function ChatSettings({
               </Switch>
               <Button
                 className="manage-speech-model"
+                isDisabled={!manageSpeechModel}
                 size="sm"
                 variant="tertiary"
                 onPress={() => {
                   setOpen(false);
-                  manageSpeechModel();
+                  manageSpeechModel?.();
                 }}
               >
                 管理语音模型
